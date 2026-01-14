@@ -9,35 +9,33 @@ import plotly.graph_objects as go
 import math
 import os
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="NBA AI Analyst Pro V4.1", layout="wide", page_icon="🏀")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="NBA AI Analyst Pro V4.2", layout="wide", page_icon="🏀")
 
-# --- SISTEMA DE PERSISTENCIA (CARRITO DE REFERENCIAS) ---
 HISTORIAL_FILE = "historial_nba.csv"
 
 def guardar_en_historial(datos):
     if os.path.exists(HISTORIAL_FILE):
         df = pd.read_csv(HISTORIAL_FILE)
     else:
-        df = pd.DataFrame(columns=["Fecha", "Equipos", "H_IA", "Prob"])
+        df = pd.DataFrame(columns=["Hora", "Encuentro", "Pick_IA", "Prob"])
     df = pd.concat([pd.DataFrame([datos]), df], ignore_index=True).head(5)
     df.to_csv(HISTORIAL_FILE, index=False)
 
 def cargar_historial():
-    if os.path.exists(HISTORIAL_FILE):
-        return pd.read_csv(HISTORIAL_FILE)
+    if os.path.exists(HISTORIAL_FILE): return pd.read_csv(HISTORIAL_FILE)
     return None
 
-# --- ESTILOS CSS ---
+# --- ESTILOS ---
 st.markdown("""
     <style>
     .valormaximo {
-        background-color: #ff0000; color: white; padding: 20px;
-        border-radius: 15px; border: 5px solid #fff;
-        font-weight: bold; text-align: center; font-size: 1.5rem;
-        animation: blinker 1s linear infinite;
+        background-color: #ff0000; color: white; padding: 15px;
+        border-radius: 10px; border: 3px solid #fff;
+        font-weight: bold; text-align: center; font-size: 1.2rem;
+        animation: blinker 1s linear infinite; margin-bottom: 20px;
     }
-    @keyframes blinker { 50% { opacity: 0; } }
+    @keyframes blinker { 50% { opacity: 0.3; } }
     </style>
     """, unsafe_allow_html=True)
 
@@ -49,7 +47,6 @@ TEAM_POWER = {
     "76ers": 115.0, "Heat": 114.5, "Kings": 114.0
 }
 
-# --- FUNCIONES DE APOYO ---
 def get_injuries():
     try:
         url = "https://espndeportes.espn.com/basquetbol/nba/lesiones"
@@ -71,13 +68,13 @@ def check_b2b(team_id):
         return team_id in df['HOME_TEAM_ID'].values or team_id in df['VISITOR_TEAM_ID'].values
     except: return False
 
-# --- SIDEBAR ---
+# --- SIDEBAR (CARRITO DE REFERENCIAS) ---
 with st.sidebar:
     st.header("📂 Carrito de Referencias")
     hist = cargar_historial()
     if hist is not None:
-        st.table(hist)
-    if st.button("Limpiar Historial"):
+        st.dataframe(hist, use_container_width=True, hide_index=True)
+    if st.button("🗑️ Borrar Historial"):
         if os.path.exists(HISTORIAL_FILE): os.remove(HISTORIAL_FILE)
         st.rerun()
 
@@ -97,7 +94,7 @@ with c3:
     cuota_casa = st.number_input("Hándicap Casa de Apuestas", value=0.0, step=0.5)
 
 if st.button("🔥 EJECUTAR ANÁLISIS DE VALOR"):
-    with st.spinner('Analizando datos...'):
+    with st.spinner('Analizando variables...'):
         inj_db = get_injuries()
         b_l, b_v = inj_db.get(l_data['nickname'].lower(), []), inj_db.get(v_data['nickname'].lower(), [])
         b2b_l, b2b_v = check_b2b(l_data['id']), check_b2b(v_data['id'])
@@ -106,34 +103,32 @@ if st.button("🔥 EJECUTAR ANÁLISIS DE VALOR"):
         sv = TEAM_POWER.get(v_data['nickname'], 111.0) - (len(b_v) * 2.5) - (4 if b2b_v else 0)
 
         diff = sl - sv
-        h_ia = round(-diff, 1) if diff > 0 else round(abs(diff), 1)
+        h_valor = round(-diff, 1)
+        # Hándicap con nombre claro
+        h_texto = f"{l_data['nickname']} {h_valor if h_valor < 0 else '+' + str(h_valor)}"
         prob_l = round((1 / (1 + math.exp(-0.065 * diff))) * 100, 1)
 
-        # GUARDAR EN HISTORIAL (CARRITO)
         guardar_en_historial({
-            "Fecha": datetime.now().strftime("%H:%M"),
-            "Equipos": f"{l_data['nickname']} vs {v_data['nickname']}",
-            "H_IA": h_ia,
+            "Hora": datetime.now().strftime("%H:%M"),
+            "Encuentro": f"{l_data['nickname']} vs {v_data['nickname']}",
+            "Pick_IA": h_texto,
             "Prob": f"{prob_l}%"
         })
 
-        # --- MOSTRAR RESULTADOS ---
         st.write("---")
-        brecha = abs(h_ia - cuota_casa)
+        brecha = abs(h_valor - cuota_casa)
         
         if brecha >= 6.0:
-            st.markdown(f'<div class="valormaximo">🚨 ¡VALOR MÁXIMO DETECTADO! 🚨<br>Diferencia de {brecha} puntos</div>', unsafe_allow_html=True)
-        elif h_ia < cuota_casa:
-            st.success(f"✅ VALOR MODERADO: La IA proyecta hándicap de {h_ia}.")
-        else:
-            st.warning(f"⚠️ RIESGO: La casa ofrece {cuota_casa}, la IA proyecta {h_ia}.")
-
-        st.info(f"📍 Marcador Final Proyectado: {l_data['nickname']} {round(sl,1)} - {round(sv,1)} {v_data['nickname']}")
+            st.markdown(f'<div class="valormaximo">🚨 ¡VALOR MÁXIMO! 🚨<br>Diferencia de {brecha} pts con la casa</div>', unsafe_allow_html=True)
         
-        st.write("### 📈 Puntos Aproximados por Periodo")
+        st.subheader("💡 Sugerencia de Apuesta")
+        if h_valor < cuota_casa:
+            st.success(f"Apuesta Recomendada: **{l_data['nickname']} Hándicap {h_valor}**")
+        else:
+            st.warning(f"Apuesta Recomendada: **{v_data['nickname']} Hándicap {abs(h_valor)}**")
+
+        st.info(f"📍 Marcador Proyectado: {l_data['nickname']} {round(sl,1)} - {round(sv,1)} {v_data['nickname']}")
+        
         dist = [0.265, 0.235, 0.260, 0.240]
         ql, qv = [round(sl * d, 1) for d in dist], [round(sv * d, 1) for d in dist]
         st.table(pd.DataFrame({"Equipo": [l_data['nickname'], v_data['nickname']], "Q1": [ql[0], qv[0]], "Q2": [ql[1], qv[1]], "Q3": [ql[2], qv[2]], "Q4": [ql[3], qv[3]], "Total": [round(sum(ql),1), round(sum(qv),1)]}))
-        
-        # NOTA: Eliminamos st.rerun() de aquí para que los resultados no se borren.
-        # El historial se actualizará la próxima vez que interactúes o si refrescas manualmente.
