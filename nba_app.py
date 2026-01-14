@@ -11,7 +11,7 @@ import math
 st.set_page_config(page_title="NBA AI Live Analyst V4.8", layout="wide", page_icon="🏀")
 
 # --- LISTA DE ESTRELLAS ---
-STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "siakam", "durant", "booker", "brunson", "mitchell", "sabo", "towns", "gobert", "wembanyama", "holmgren"]
+STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "siakam", "durant", "booker", "brunson", "mitchell", "sabo", "towns", "gobert", "wembanyama", "holmgren", "williamson", "ingram", "mccollum"]
 
 # --- RANKING DE PODER BASE ---
 TEAM_POWER = {
@@ -67,10 +67,10 @@ team_names = sorted([t['full_name'] for t in all_teams])
 
 c1, c2, c3 = st.columns([1, 1, 1])
 with c1:
-    l_name = st.selectbox("LOCAL", team_names, index=0)
+    l_name = st.selectbox("LOCAL", team_names, index=next((i for i, t in enumerate(team_names) if "Pelicans" in t), 0))
     l_data = next(t for t in all_teams if t['full_name'] == l_name)
 with c2:
-    v_name = st.selectbox("VISITANTE", team_names, index=1)
+    v_name = st.selectbox("VISITANTE", team_names, index=next((i for i, t in enumerate(team_names) if "Nuggets" in t), 1))
     v_data = next(t for t in all_teams if t['full_name'] == v_name)
 with c3:
     cuota_casa = st.number_input("Hándicap Casa de Apuestas", value=0.0, step=0.5)
@@ -92,12 +92,13 @@ if st.session_state.analisis_activo:
             m_l_live = live_df[live_df['TEAM_ID'] == l_data['id']]
             m_v_live = live_df[live_df['TEAM_ID'] == v_data['id']]
             if not m_l_live.empty and not m_v_live.empty:
-                # CORRECCIÓN: Manejo de valores None o No numéricos
                 val_l = m_l_live.iloc[-1]['PTS']
                 val_v = m_v_live.iloc[-1]['PTS']
-                p_l = int(val_l) if val_l is not None and str(val_l).isdigit() else 0
-                p_v = int(val_v) if val_v is not None and str(val_v).isdigit() else 0
-                if p_l > 0 or p_v > 0: is_live = True
+                try:
+                    p_l = int(val_l) if val_l is not None else 0
+                    p_v = int(val_v) if val_v is not None else 0
+                    if p_l > 0 or p_v > 0: is_live = True
+                except: p_l, p_v = 0, 0
 
         sl = (TEAM_POWER.get(l_data['nickname'], 112.0) + 4.0 - m_l)
         sv = (TEAM_POWER.get(v_data['nickname'], 110.0) - m_v)
