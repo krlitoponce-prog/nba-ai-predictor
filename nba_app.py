@@ -10,21 +10,10 @@ import math
 import os
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI Analyst Pro V4.2", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI Analyst Pro V4.3", layout="wide", page_icon="🏀")
 
-HISTORIAL_FILE = "historial_nba.csv"
-
-def guardar_en_historial(datos):
-    if os.path.exists(HISTORIAL_FILE):
-        df = pd.read_csv(HISTORIAL_FILE)
-    else:
-        df = pd.DataFrame(columns=["Hora", "Encuentro", "Pick_IA", "Prob"])
-    df = pd.concat([pd.DataFrame([datos]), df], ignore_index=True).head(5)
-    df.to_csv(HISTORIAL_FILE, index=False)
-
-def cargar_historial():
-    if os.path.exists(HISTORIAL_FILE): return pd.read_csv(HISTORIAL_FILE)
-    return None
+# --- LISTA DE JUGADORES DESEQUILIBRANTES (ESTRELLAS) ---
+STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "siakam", "durant", "booker", "brunson", "mitchell", "sabo"]
 
 # --- ESTILOS ---
 st.markdown("""
@@ -68,15 +57,19 @@ def check_b2b(team_id):
         return team_id in df['HOME_TEAM_ID'].values or team_id in df['VISITOR_TEAM_ID'].values
     except: return False
 
-# --- SIDEBAR (CARRITO DE REFERENCIAS) ---
+# --- SIDEBAR (CARRITO DE REFERENCIAS -> LESIONADOS) ---
+inj_db = get_injuries()
 with st.sidebar:
     st.header("📂 Carrito de Referencias")
-    hist = cargar_historial()
-    if hist is not None:
-        st.dataframe(hist, use_container_width=True, hide_index=True)
-    if st.button("🗑️ Borrar Historial"):
-        if os.path.exists(HISTORIAL_FILE): os.remove(HISTORIAL_FILE)
-        st.rerun()
+    st.subheader("🚑 Reporte Global de Lesiones")
+    if inj_db:
+        for equipo, lista in inj_db.items():
+            with st.expander(f"📍 {equipo.upper()}"):
+                for p in lista:
+                    impacto = "⭐ Estrella" if any(s in p.lower() for s in STARS) else "🔄 Rol"
+                    st.write(f"- {p} ({impacto})")
+    else:
+        st.write("No se detectan lesiones hoy.")
 
 # --- INTERFAZ PRINCIPAL ---
 st.title("🏀 NBA AI PRO: COMPARADOR DE VALOR")
@@ -95,25 +88,25 @@ with c3:
 
 if st.button("🔥 EJECUTAR ANÁLISIS DE VALOR"):
     with st.spinner('Analizando variables...'):
-        inj_db = get_injuries()
-        b_l, b_v = inj_db.get(l_data['nickname'].lower(), []), inj_db.get(v_data['nickname'].lower(), [])
+        b_l = inj_db.get(l_data['nickname'].lower(), [])
+        b_v = inj_db.get(v_data['nickname'].lower(), [])
         b2b_l, b2b_v = check_b2b(l_data['id']), check_b2b(v_data['id'])
 
-        sl = TEAM_POWER.get(l_data['nickname'], 113.0) + 4.0 - (len(b_l) * 2.5) - (4 if b2b_l else 0)
-        sv = TEAM_POWER.get(v_data['nickname'], 111.0) - (len(b_v) * 2.5) - (4 if b2b_v else 0)
+        # LÓGICA DE IMPACTO SEGÚN CALIDAD DEL JUGADOR
+        def calcular_merma(lista_lesionados):
+            merma = 0
+            for p in lista_lesionados:
+                if any(s in p.lower() for s in STARS): merma += 4.0  # Estrella (Desequilibrante)
+                else: merma += 1.5  # Reemplazable
+            return merma
+
+        sl = TEAM_POWER.get(l_data['nickname'], 113.0) + 4.0 - calcular_merma(b_l) - (4 if b2b_l else 0)
+        sv = TEAM_POWER.get(v_data['nickname'], 111.0) - calcular_merma(b_v) - (4 if b2b_v else 0)
 
         diff = sl - sv
         h_valor = round(-diff, 1)
-        # Hándicap con nombre claro
         h_texto = f"{l_data['nickname']} {h_valor if h_valor < 0 else '+' + str(h_valor)}"
         prob_l = round((1 / (1 + math.exp(-0.065 * diff))) * 100, 1)
-
-        guardar_en_historial({
-            "Hora": datetime.now().strftime("%H:%M"),
-            "Encuentro": f"{l_data['nickname']} vs {v_data['nickname']}",
-            "Pick_IA": h_texto,
-            "Prob": f"{prob_l}%"
-        })
 
         st.write("---")
         brecha = abs(h_valor - cuota_casa)
