@@ -6,21 +6,24 @@ from nba_api.stats.static import teams
 from nba_api.stats.endpoints import scoreboardv2
 from datetime import datetime, timedelta
 import math
-import time
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI Live Analyst V4.5", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI Live Analyst V4.8", layout="wide", page_icon="🏀")
 
-# --- LISTA DE ESTRELLAS (MERMA DESEQUILIBRANTE) ---
+# --- LISTA DE ESTRELLAS ---
 STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "siakam", "durant", "booker", "brunson", "mitchell", "sabo", "towns", "gobert", "wembanyama", "holmgren"]
 
-# --- RANKING DE PODER (BASE) ---
+# --- RANKING DE PODER BASE ---
 TEAM_POWER = {
     "Celtics": 120.5, "Thunder": 120.0, "Nuggets": 119.5, "Timberwolves": 118.0,
     "Mavericks": 118.0, "Bucks": 114.5, "Knicks": 117.0, "Suns": 116.0,
     "Pacers": 117.5, "Lakers": 114.5, "Warriors": 114.0, "Cavaliers": 116.0,
-    "76ers": 115.0, "Heat": 114.5, "Kings": 114.0
+    "76ers": 115.0, "Heat": 114.5, "Kings": 114.0, "Pelicans": 113.5
 }
+
+# --- INICIALIZAR MEMORIA TEMPORAL ---
+if 'analisis_activo' not in st.session_state:
+    st.session_state.analisis_activo = False
 
 def get_injuries():
     try:
@@ -38,10 +41,10 @@ def get_injuries():
 def get_live_data():
     try:
         sb = scoreboardv2.ScoreboardV2()
-        return sb.get_data_frames()[1] # LineScore (contiene puntos actuales)
+        return sb.get_data_frames()[1]
     except: return None
 
-# --- SIDEBAR (CARRITO DE REFERENCIAS: LESIONADOS) ---
+# --- SIDEBAR (CARRITO DE REFERENCIAS) ---
 inj_db = get_injuries()
 with st.sidebar:
     st.header("📂 Carrito de Referencias")
@@ -50,15 +53,11 @@ with st.sidebar:
         for equipo, lista in inj_db.items():
             with st.expander(f"📍 {equipo.upper()}"):
                 for p in lista:
-                    es_estrella = any(s in p.lower() for s in STARS)
-                    impacto = "🔴 DESEQUILIBRANTE (-4.0)" if es_estrella else "🟡 REEMPLAZABLE (-1.5)"
-                    st.write(f"**{p}**")
-                    st.caption(impacto)
-    else:
-        st.write("No hay lesiones críticas reportadas.")
+                    impacto = "🔴 ESTRELLA (-4.0)" if any(s in p.lower() for s in STARS) else "🟡 ROL (-1.5)"
+                    st.write(f"**{p}** \n {impacto}")
     
     st.write("---")
-    if st.button("🔄 REFRESCAR MARCADORES LIVE"):
+    if st.button("🔄 ACTUALIZAR MARCADORES LIVE"):
         st.rerun()
 
 # --- INTERFAZ PRINCIPAL ---
@@ -77,64 +76,58 @@ with c3:
     cuota_casa = st.number_input("Hándicap Casa de Apuestas", value=0.0, step=0.5)
 
 if st.button("🔥 EJECUTAR ANÁLISIS"):
-    with st.spinner('Sincronizando con la NBA en vivo...'):
-        # 1. Calcular mermas por lesiones
-        def calcular_merma(equipo_nickname):
-            lista = inj_db.get(equipo_nickname.lower(), [])
-            return sum([4.0 if any(s in p.lower() for s in STARS) else 1.5 for p in lista])
+    st.session_state.analisis_activo = True
 
-        merma_l = calcular_merma(l_data['nickname'])
-        merma_v = calcular_merma(v_data['nickname'])
-
-        # 2. Obtener puntos en vivo si existen
+# --- LÓGICA DE VISUALIZACIÓN ---
+if st.session_state.analisis_activo:
+    with st.container():
+        st.write("---")
+        m_l = sum([4.0 if any(s in p.lower() for s in STARS) else 1.5 for p in inj_db.get(l_data['nickname'].lower(), [])])
+        m_v = sum([4.0 if any(s in p.lower() for s in STARS) else 1.5 for p in inj_db.get(v_data['nickname'].lower(), [])])
+        
         live_df = get_live_data()
-        pts_l, pts_v = 0, 0
-        is_live = False
+        p_l, p_v, is_live = 0, 0, False
         
         if live_df is not None and not live_df.empty:
-            match_l = live_df[live_df['TEAM_ID'] == l_data['id']]
-            match_v = live_df[live_df['TEAM_ID'] == v_data['id']]
-            if not match_l.empty and not match_v.empty:
-                pts_l = match_l.iloc[-1]['PTS']
-                pts_v = match_v.iloc[-1]['PTS']
-                if pts_l > 0 or pts_v > 0: is_live = True
+            m_l_live = live_df[live_df['TEAM_ID'] == l_data['id']]
+            m_v_live = live_df[live_df['TEAM_ID'] == v_data['id']]
+            if not m_l_live.empty and not m_v_live.empty:
+                # CORRECCIÓN: Manejo de valores None o No numéricos
+                val_l = m_l_live.iloc[-1]['PTS']
+                val_v = m_v_live.iloc[-1]['PTS']
+                p_l = int(val_l) if val_l is not None and str(val_l).isdigit() else 0
+                p_v = int(val_v) if val_v is not None and str(val_v).isdigit() else 0
+                if p_l > 0 or p_v > 0: is_live = True
 
-        # 3. Proyección Lógica
-        # Si el partido es en vivo, la proyección es (Puntos actuales + Proyección restante ajustada)
-        base_l = TEAM_POWER.get(l_data['nickname'], 112.0) + 4.0 - merma_l
-        base_v = TEAM_POWER.get(v_data['nickname'], 110.0) - merma_v
+        sl = (TEAM_POWER.get(l_data['nickname'], 112.0) + 4.0 - m_l)
+        sv = (TEAM_POWER.get(v_data['nickname'], 110.0) - m_v)
 
         if is_live:
-            # Estimamos cuánto falta basándonos en el marcador real (ajustamos tendencia)
-            sl = (pts_l * 1.8) if pts_l > 60 else (pts_l + (base_l / 2))
-            sv = (pts_v * 1.8) if pts_v > 60 else (pts_v + (base_v / 2))
-            status_msg = f"🚨 PARTIDO EN VIVO: Marcador Actual {pts_l} - {pts_v}"
+            sl = (p_l * 1.85) if p_l > 60 else (p_l + (sl/1.8))
+            sv = (p_v * 1.85) if p_v > 60 else (p_v + (sv/1.8))
+            st.subheader(f"🚨 EN VIVO: {l_data['nickname']} {p_l} - {p_v} {v_data['nickname']}")
         else:
-            sl, sv = base_l, base_v
-            status_msg = "📅 PROYECCIÓN PRE-PARTIDO"
+            st.subheader("📅 PROYECCIÓN PRE-PARTIDO")
 
-        diff = sl - sv
-        h_ia = round(-diff, 1)
-
-        # --- RESULTADOS ---
-        st.write("---")
-        st.subheader(status_msg)
-        
+        h_ia = round(-(sl - sv), 1)
         brecha = abs(h_ia - cuota_casa)
+
         if brecha >= 6.0:
-            st.markdown(f'<div style="background-color:red; color:white; padding:20px; border-radius:10px; text-align:center; font-weight:bold; animation: blinker 1s linear infinite;">🚨 VALOR MÁXIMO DETECTADO: DIFERENCIA DE {brecha} PTS</div>', unsafe_allow_html=True)
-
-        st.info(f"📍 Marcador Final Estimado: {l_data['nickname']} {round(sl,1)} - {round(sv,1)} {v_data['nickname']}")
+            st.error(f"🚨 VALOR MÁXIMO DETECTADO: DIFERENCIA DE {brecha} PTS")
         
-        # Sugerencia
-        pick = l_data['nickname'] if h_ia < cuota_casa else v_data['nickname']
-        st.success(f"💡 Sugerencia de Apuesta: **{pick} Hándicap {h_ia if pick == l_data['nickname'] else abs(h_ia)}**")
+        st.info(f"📍 Final Proyectado: {l_data['nickname']} {round(sl,1)} - {round(sv,1)} {v_data['nickname']}")
+        st.success(f"💡 Sugerencia: **{l_data['nickname'] if h_ia < cuota_casa else v_data['nickname']} Hándicap {h_ia if h_ia < cuota_casa else abs(h_ia)}**")
 
-        # Tabla por Cuartos
         dist = [0.265, 0.235, 0.260, 0.240]
-        ql, qv = [round(sl * d, 1) for d in dist], [round(sv * d, 1) for d in dist]
         st.table(pd.DataFrame({
-            "Equipo": [l_data['nickname'], v_data['nickname']],
-            "Q1": [ql[0], qv[0]], "Q2": [ql[1], qv[1]], "Q3": [ql[2], qv[2]], "Q4": [ql[3], qv[3]],
-            "Total Proyectado": [round(sum(ql),1), round(sum(qv),1)]
+            "Equipo": [l_data['nickname'], v_data['nickname']], 
+            "Q1": [round(sl*dist[0],1), round(sv*dist[0],1)], 
+            "Q2": [round(sl*dist[1],1), round(sv*dist[1],1)], 
+            "Q3": [round(sl*dist[2],1), round(sv*dist[2],1)], 
+            "Q4": [round(sl*dist[3],1), round(sv*dist[3],1)], 
+            "Total": [round(sl,1), round(sv,1)]
         }))
+
+        if st.button("❌ CERRAR Y LIMPIAR ANÁLISIS"):
+            st.session_state.analisis_activo = False
+            st.rerun()
