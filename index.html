@@ -1,0 +1,130 @@
+import streamlit as st
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup
+from nba_api.stats.static import teams
+from nba_api.stats.endpoints import scoreboardv2
+from datetime import datetime, timedelta
+import plotly.graph_objects as go
+import math
+
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="NBA AI Analyst Pro", layout="wide", page_icon="🏀")
+
+# --- RANKING DE PODER ACTUALIZADO (POST INDIANA VS BOSTON) ---
+TEAM_POWER = {
+    "Celtics": 120.5, "Thunder": 120.0, "Nuggets": 119.5, "Timberwolves": 118.0,
+    "Mavericks": 118.0, "Bucks": 116.5, "Knicks": 117.0, "Suns": 116.0,
+    "Pacers": 117.5, "Lakers": 114.5, "Warriors": 114.0, "Cavaliers": 116.0,
+    "76ers": 115.0, "Heat": 114.5, "Kings": 114.0
+}
+
+# --- ESTILOS CSS ---
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; color: #ffffff; }
+    .stButton>button { width: 100%; border-radius: 10px; height: 3em; background-color: #f63366; color: white; font-weight: bold; }
+    .handicap-box { 
+        font-size: 2rem; font-weight: bold; color: #ff9500; 
+        background: #262730; padding: 10px 20px; border-radius: 15px;
+        border: 2px solid #ff9500; margin-top: 10px; display: inline-block;
+    }
+    .paliza-tag {
+        background: #ff4b2b; color: white; padding: 8px 15px; 
+        border-radius: 8px; font-weight: bold; font-size: 0.9rem;
+        margin-top: 15px; display: block; animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- FUNCIONES DE DATOS ---
+def get_injuries():
+    try:
+        url = "https://espndeportes.espn.com/basquetbol/nba/lesiones"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        injuries = {}
+        for title in soup.find_all('div', class_='Table__Title'):
+            team_key = title.text.strip().split()[-1].lower()
+            rows = title.find_parent('div', class_='ResponsiveTable').find_all('tr', class_='Table__TR')
+            injuries[team_key] = [r.find_all('td')[0].text.strip() for r in rows[1:]]
+        return injuries
+    except: return {}
+
+def check_b2b(team_id):
+    try:
+        ayer = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
+        sb = scoreboardv2.ScoreboardV2(game_date=ayer)
+        df = sb.get_data_frames()[0]
+        return team_id in df['HOME_TEAM_ID'].values or team_id in df['VISITOR_TEAM_ID'].values
+    except: return False
+
+# --- INTERFAZ DE USUARIO ---
+st.title("🏀 NBA AI: ANALIZADOR DE PROBABILIDADES V3")
+st.write("Análisis basado en Jerarquía ELO, Lesiones en Tiempo Real y Factor de Localía.")
+
+all_teams = teams.get_teams()
+team_names = sorted([t['full_name'] for t in all_teams])
+
+col_l, col_v = st.columns(2)
+with col_l:
+    l_name = st.selectbox("EQUIPO LOCAL", team_names, index=0)
+    l_data = next(t for t in all_teams if t['full_name'] == l_name)
+    st.image(f"https://cdn.nba.com/logos/nba/{l_data['id']}/global/L/logo.svg", width=100)
+
+with col_v:
+    v_name = st.selectbox("EQUIPO VISITANTE", team_names, index=1)
+    v_data = next(t for t in all_teams if t['full_name'] == v_name)
+    st.image(f"https://cdn.nba.com/logos/nba/{v_data['id']}/global/L/logo.svg", width=100)
+
+if st.button("🔥 EJECUTAR PREDICCIÓN PROFESIONAL"):
+    with st.spinner('Consultando ESPN y bases de datos NBA...'):
+        inj_db = get_injuries()
+        b_l, b_v = inj_db.get(l_data['nickname'].lower(), []), inj_db.get(v_data['nickname'].lower(), [])
+        b2b_l, b2b_v = check_b2b(l_data['id']), check_b2b(v_data['id'])
+
+        # CÁLCULO DE PUNTOS PROYECTADOS
+        # Localía: +4.0 puntos | Lesión: -2.5 puntos | B2B: -4.0 puntos
+        sl = TEAM_POWER.get(l_data['nickname'], 113.0) + 4.0 - (len(b_l) * 2.5) - (4 if b2b_l else 0)
+        sv = TEAM_POWER.get(v_data['nickname'], 111.0) - (len(b_v) * 2.5) - (4 if b2b_v else 0)
+
+        diff = sl - sv
+        prob_l = 1 / (1 + math.exp(-0.065 * diff))
+        p_l, p_v = round(prob_l * 100, 1), round((1 - prob_l) * 100, 1)
+
+        h_l = f"-{abs(round(diff, 1))}" if diff > 0 else f"+{abs(round(diff, 1))}"
+        h_v = f"+{abs(round(diff, 1))}" if diff > 0 else f"-{abs(round(diff, 1))}"
+
+        # RESULTADOS EN COLUMNAS NATIVAS (DISEÑO LIMPIO)
+        st.write("---")
+        r1, r_vs, r2 = st.columns([1, 0.2, 1])
+        
+        with r1:
+            st.markdown(f"<h1 style='text-align: center; color: #00ff88; margin:0;'>{p_l}%</h1>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center; font-size: 1.2rem;'>{l_data['nickname']}</p>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center;'><div class='handicap-box'>{h_l}</div></div>", unsafe_allow_html=True)
+            if diff >= 12: st.markdown("<div class='paliza-alert'>🔥 PALIZA PROBABLE</div>", unsafe_allow_html=True)
+
+        with r_vs:
+            st.markdown("<h2 style='text-align: center; color: #f63366; margin-top: 30px;'>VS</h2>", unsafe_allow_html=True)
+
+        with r2:
+            st.markdown(f"<h1 style='text-align: center; color: #1f77b4; margin:0;'>{p_v}%</h1>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center; font-size: 1.2rem;'>{v_data['nickname']}</p>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center;'><div class='handicap-box'>{h_v}</div></div>", unsafe_allow_html=True)
+            if diff <= -12: st.markdown("<div class='paliza-alert'>🔥 PALIZA PROBABLE</div>", unsafe_allow_html=True)
+
+        st.write("---")
+        
+        # PROYECCIÓN POR CUARTOS
+        dist = [0.265, 0.235, 0.260, 0.240]
+        ql, qv = [round(sl * d, 1) for d in dist], [round(sv * d, 1) for d in dist]
+        
+        fig = go.Figure()
+        fig.add_trace(go.Bar(name=l_data['nickname'], x=['Q1','Q2','Q3','Q4'], y=ql, marker_color='#00ff88'))
+        fig.add_trace(go.Bar(name=v_data['nickname'], x=['Q1','Q2','Q3','Q4'], y=qv, marker_color='#1f77b4'))
+        fig.update_layout(template="plotly_dark", barmode='group', height=300, margin=dict(l=0,r=0,t=20,b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.info(f"📍 Marcador Proyectado: {l_data['nickname']} {round(sl,1)} - {round(sv,1)} {v_data['nickname']}")
