@@ -5,20 +5,29 @@ from bs4 import BeautifulSoup
 from nba_api.stats.static import teams
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V6.5", layout="wide", page_icon="🏆")
+st.set_page_config(page_title="NBA AI ELITE V6.7", layout="wide", page_icon="🎯")
 
-# --- 2. MOTOR DE RATINGS AMPLIADO ---
-# Estructura: [Off_Rating, Def_Rating, Clutch, Home_Advantage]
+# --- 2. BASE DE DATOS DE LOS 30 EQUIPOS (Ratings 2026) ---
+# Estructura: [Ataque, Defensa, Clutch (Cierre), Localía]
 ADVANCED_STATS = {
-    "Celtics": [122.5, 110.2, 1.12, 4.8], "Thunder": [118.5, 111.0, 1.08, 3.8], "Nuggets": [119.0, 112.5, 1.18, 5.8],
-    "76ers": [115.5, 113.0, 1.01, 3.5], "Cavaliers": [116.8, 110.5, 1.05, 3.5], "Lakers": [115.0, 114.8, 1.06, 4.2],
-    "Warriors": [116.5, 115.5, 1.02, 4.5], "Knicks": [117.2, 112.1, 1.04, 4.3], "Mavericks": [117.5, 115.0, 1.10, 3.8],
-    "Bucks": [116.0, 116.5, 0.90, 4.0], "Timberwolves": [114.0, 108.5, 0.94, 3.9], "Suns": [117.0, 115.8, 0.98, 3.7],
-    "Pacers": [120.1, 119.5, 0.96, 3.6], "Kings": [116.2, 115.0, 1.03, 3.8], "Heat": [113.2, 111.5, 1.07, 4.1]
-    # ... (Se pueden seguir añadiendo con sus localías específicas)
+    "Celtics": [123.5, 110.5, 1.12, 4.8], "Thunder": [119.5, 110.0, 1.09, 3.8],
+    "Nuggets": [118.0, 112.0, 1.18, 5.8], "76ers": [116.5, 113.5, 1.02, 3.5],
+    "Cavaliers": [117.2, 110.2, 1.06, 3.8], "Lakers": [116.0, 115.0, 1.07, 4.2],
+    "Warriors": [117.5, 115.8, 1.04, 4.5], "Knicks": [118.0, 111.5, 1.05, 4.5],
+    "Mavericks": [118.8, 115.2, 1.11, 4.0], "Bucks": [117.0, 116.2, 0.95, 4.1],
+    "Timberwolves": [114.5, 108.2, 0.96, 4.0], "Suns": [117.8, 116.0, 1.01, 3.8],
+    "Pacers": [121.5, 120.0, 0.98, 3.6], "Kings": [116.8, 115.5, 1.03, 4.2],
+    "Heat": [114.0, 111.8, 1.08, 4.3], "Magic": [111.5, 109.5, 0.96, 3.7],
+    "Clippers": [115.5, 114.0, 1.03, 3.8], "Rockets": [113.8, 112.5, 1.01, 3.6],
+    "Pelicans": [115.0, 113.8, 0.92, 3.5], "Hawks": [118.5, 121.2, 0.95, 3.4],
+    "Grizzlies": [113.0, 112.8, 1.01, 3.8], "Bulls": [114.2, 116.5, 1.04, 3.5],
+    "Nets": [112.5, 116.8, 0.96, 3.2], "Raptors": [113.2, 118.0, 0.94, 3.7],
+    "Jazz": [115.8, 120.5, 0.98, 4.6], "Spurs": [111.0, 115.2, 1.05, 3.6],
+    "Hornets": [110.2, 119.5, 0.93, 3.2], "Pistons": [109.5, 118.0, 0.90, 3.1],
+    "Wizards": [111.8, 122.5, 0.91, 3.0], "Trail Blazers": [110.0, 117.5, 0.93, 3.8]
 }
 
-STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "mitchell", "brunson"]
+STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "mitchell", "brunson", "wembanayama", "morant", "adebayo", "butler", "banchero", "sabonis", "fox"]
 
 # --- 3. EXTRACCIÓN Y SIDEBAR (CARRITO PERMANENTE) ---
 @st.cache_data(ttl=600)
@@ -30,7 +39,8 @@ def get_all_context():
         injuries = {}
         for title in soup.find_all('div', class_='Table__Title'):
             team_raw = title.text.strip().lower()
-            team_key = "76ers" if "76ers" in team_raw else team_raw.split()[-1]
+            if "76ers" in team_raw: team_key = "76ers"
+            else: team_key = team_raw.split()[-1]
             rows = title.find_parent('div', class_='ResponsiveTable').find_all('tr', class_='Table__TR')
             injuries[team_key] = [r.find_all('td')[0].text.strip() for r in rows[1:]]
         return injuries
@@ -40,42 +50,38 @@ all_nba_teams = teams.get_teams()
 inj_db = get_all_context()
 
 with st.sidebar:
-    st.header("⚙️ Ajustes de Energía")
-    b2b_l = st.toggle("Local en Back-to-Back")
-    b2b_v = st.toggle("Visita en Back-to-Back")
-    st.write("---")
     st.header("📂 Carrito Permanente")
     for t_info in sorted(all_nba_teams, key=lambda x: x['nickname']):
-        nick = t_info['nickname'].lower()
-        bajas = inj_db.get(nick, [])
+        nick = t_info['nickname']
+        bajas = inj_db.get(nick.lower(), [])
         with st.expander(f"📍 {nick.upper()}"):
             if bajas:
                 for p in bajas:
                     impacto = "🔴" if any(s in p.lower() for s in STARS) else "🟡"
                     st.write(f"{impacto} {p}")
             else: st.write("✅ Plantilla Completa")
-    if st.button("🔄 ACTUALIZAR"): st.rerun()
+    if st.button("🔄 ACTUALIZAR WEB"): st.rerun()
 
-# --- 4. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V6.5: ULTIMATE ENGINE")
+# --- 4. INTERFAZ ---
+st.title("🏀 NBA AI PRO V6.7: 30-TEAM TERMINAL")
 
 c1, c2 = st.columns(2)
 with c1:
     l_name = st.selectbox("LOCAL", sorted([t['full_name'] for t in all_nba_teams]), index=0)
     l_data = next(t for t in all_nba_teams if t['full_name'] == l_name)
     s_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0, 3.5])
-    m_l = st.checkbox(f"🚨 BAJA ESTRELLA ({l_data['nickname']})")
-    st.metric(f"Factor Clutch {l_data['nickname']}", f"x{s_l[2]}", delta="Localía: +"+str(s_l[3]))
+    m_l = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({l_data['nickname']})")
+    st.metric(f"Clutch {l_data['nickname']}", f"x{s_l[2]}", f"Home: +{s_l[3]}")
 
 with c2:
     v_name = st.selectbox("VISITANTE", sorted([t['full_name'] for t in all_nba_teams]), index=1)
     v_data = next(t for t in all_nba_teams if t['full_name'] == v_name)
     s_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0, 3.5])
-    m_v = st.checkbox(f"🚨 BAJA ESTRELLA ({v_data['nickname']})")
-    st.metric(f"Factor Clutch {v_data['nickname']}", f"x{s_v[2]}", delta="Visitante: +0.0")
+    m_v = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({v_data['nickname']})")
+    st.metric(f"Clutch {v_data['nickname']}", f"x{s_v[2]}", "Visitante")
 
-if st.button("🚀 INICIAR ANÁLISIS TOTAL"):
-    # Penalizaciones
+# --- 5. CÁLCULO DE PRECISIÓN ---
+if st.button("🚀 ANALIZAR PARTIDO"):
     red_l = 0.08 if m_l else 0
     if not m_l:
         for p in inj_db.get(l_data['nickname'].lower(), []):
@@ -86,38 +92,23 @@ if st.button("🚀 INICIAR ANÁLISIS TOTAL"):
         for p in inj_db.get(v_data['nickname'].lower(), []):
             red_v += 0.045 if any(s in p.lower() for s in STARS) else 0.015
 
-    red_l, red_v = min(red_l, 0.15), min(red_v, 0.15)
-    f_c_l = 0.975 if b2b_l else 1.0
-    f_c_v = 0.975 if b2b_v else 1.0
-
-    # CÁLCULO DE FUERZA (Con Localía Dinámica s_l[3])
-    f_l = (((s_l[0] * (1-red_l)) + s_v[1]) / 2 + s_l[3]) * f_c_l
-    f_v = (((s_v[0] * (1-red_v)) + s_l[1]) / 2) * f_c_v
+    # Lógica 70/30 (Ofensiva/Defensa Rival)
+    pot_l = ((s_l[0] * (1 - min(red_l, 0.15))) * 0.7) + (s_v[1] * 0.3)
+    pot_v = ((s_v[0] * (1 - min(red_v, 0.15))) * 0.7) + (s_l[1] * 0.3)
     
-    res_l, res_v = round(f_l * s_l[2], 1), round(f_v * s_v[2], 1)
-    h_final = round(-(res_l - res_v), 1)
-    puntos_totales = round(res_l + res_v, 1)
+    res_l, res_v = round((pot_l + s_l[3]) * s_l[2], 1), round(pot_v * s_v[2], 1)
+    h_final, total = round(-(res_l - res_v), 1), round(res_l + res_v, 1)
 
-    # VISUALIZACIÓN DE RESULTADOS
     st.divider()
+    st.subheader(f"📊 {l_data['nickname']} {res_l} - {res_v} {v_data['nickname']}")
     
-    # 1. Gráfico de Proyección
-    st.subheader("📊 Comparativa de Poder")
-    st.bar_chart(pd.DataFrame({"Equipo": [l_data['nickname'], v_data['nickname']], "Puntaje Proyectado": [res_l, res_v]}).set_index("Equipo"))
+    c_res1, c_res2 = st.columns(2)
+    with c_res1: st.success(f"🎯 Hándicap: {h_final}")
+    with c_res2: st.warning(f"🏀 Total Puntos (O/U): {total}")
 
-    # 2. Semáforo y Hándicap
-    if abs(h_final) > 9:
-        st.success(f"💎 GRAN VENTAJA: {l_data['nickname']} vs {v_data['nickname']} | Hándicap Sugerido: {h_final}")
-    else:
-        st.info(f"⚖️ LÍNEA AJUSTADA: Hándicap Sugerido: {h_final}")
-    
-    st.warning(f"🏀 TOTAL DE PUNTOS PROYECTADO (O/U): {puntos_totales}")
-
-    # 3. Tabla de Cuartos (Q1-Q4)
+    # Tabla de Cuartos
     q_l, q_v = res_l/4, res_v/4
-    qs = {
-        "Periodo": ["Q1", "Q2", "Q3", "Q4 (Clutch)", "TOTAL"],
-        l_data['nickname']: [round(q_l,1), round(q_l,1), round(q_l*0.95,1), round(q_l*s_l[2],1), res_l],
-        v_data['nickname']: [round(q_v,1), round(q_v,1), round(q_v*0.95,1), round(q_v*s_v[2],1), res_v]
-    }
+    qs = {"Periodo": ["Q1", "Q2", "Q3", "Q4 (Clutch)", "TOTAL"],
+          l_data['nickname']: [round(q_l,1), round(q_l,1), round(q_l*0.95,1), round(q_l*s_l[2],1), res_l],
+          v_data['nickname']: [round(q_v,1), round(q_v,1), round(q_v*0.95,1), round(q_v*s_v[2],1), res_v]}
     st.table(pd.DataFrame(qs))
