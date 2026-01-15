@@ -5,10 +5,9 @@ from bs4 import BeautifulSoup
 from nba_api.stats.static import teams
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V5.8", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI ELITE V5.9", layout="wide", page_icon="🏀")
 
 # --- 2. MOTOR DE RATINGS ---
-# [Off_Rating, Def_Rating, Clutch_Factor]
 ADVANCED_STATS = {
     "Celtics": [122.5, 110.2, 1.12], "Thunder": [118.5, 111.0, 1.08], "Nuggets": [119.0, 112.5, 1.18],
     "Timberwolves": [114.0, 108.5, 0.94], "Mavericks": [117.5, 115.0, 1.10], "Bucks": [116.0, 116.5, 0.90],
@@ -44,7 +43,7 @@ all_nba_teams = teams.get_teams()
 inj_db = get_all_context()
 
 with st.sidebar:
-    st.header("⚙️ Ajustes Físicos")
+    st.header("⚙️ Ajustes de Energía")
     b2b_l = st.toggle("Local en Back-to-Back")
     b2b_v = st.toggle("Visita en Back-to-Back")
     st.write("---")
@@ -60,25 +59,30 @@ with st.sidebar:
             else: st.write("✅ Plantilla Completa")
     if st.button("🔄 ACTUALIZAR"): st.rerun()
 
-# --- 4. INTERFAZ Y CÁLCULO ---
-st.title("🏀 NBA AI PRO V5.8: TOTAL ENGINE")
+# --- 4. INTERFAZ Y COMPARATIVA TÁCTICA ---
+st.title("🏀 NBA AI PRO V5.9: CLUTCH ANALYZER")
+
 c1, c2 = st.columns(2)
 with c1:
     l_name = st.selectbox("LOCAL", sorted([t['full_name'] for t in all_nba_teams]), index=0)
     l_data = next(t for t in all_nba_teams if t['full_name'] == l_name)
+    s_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0])
     manual_l = st.checkbox(f"🚨 BAJA ESTRELLA ({l_data['nickname']})")
+    # Muestra de Factor Clutch
+    st.metric(label=f"Factor Clutch {l_data['nickname']}", value=f"x{s_l[2]}", delta="Superior a 1.0 es Élite" if s_l[2] > 1.0 else "Debilidad en cierre")
 
 with c2:
     v_name = st.selectbox("VISITANTE", sorted([t['full_name'] for t in all_nba_teams]), index=1)
     v_data = next(t for t in all_nba_teams if t['full_name'] == v_name)
-    manual_v = st.checkbox(f"🚨 BAJA ESTRELLA ({v_data['nickname']})")
-
-if st.button("🔥 ANALIZAR PARTIDO"):
-    # Stats base
-    s_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0])
     s_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0])
+    manual_v = st.checkbox(f"🚨 BAJA ESTRELLA ({v_data['nickname']})")
+    # Muestra de Factor Clutch
+    st.metric(label=f"Factor Clutch {v_data['nickname']}", value=f"x{s_v[2]}", delta="Superior a 1.0 es Élite" if s_v[2] > 1.0 else "Debilidad en cierre")
 
-    # Penalizaciones (Manual + Auto)
+st.write("---")
+
+if st.button("🔥 GENERAR ANÁLISIS COMPLETO"):
+    # Penalizaciones
     red_l = 0.08 if manual_l else 0
     if not manual_l:
         for p in inj_db.get(l_data['nickname'].lower(), []):
@@ -89,26 +93,24 @@ if st.button("🔥 ANALIZAR PARTIDO"):
         for p in inj_db.get(v_data['nickname'].lower(), []):
             red_v += 0.045 if any(s in p.lower() for s in STARS) else 0.015
 
-    # Cansancio y Localía
+    red_l, red_v = min(red_l, 0.15), min(red_v, 0.15)
     f_c_l = 0.975 if b2b_l else 1.0
     f_c_v = 0.975 if b2b_v else 1.0
     
-    # PROYECCIÓN POR CUARTOS
-    # El Q4 se ve afectado por el Clutch Factor
+    # PROYECCIÓN
     f_l = (((s_l[0] * (1-red_l)) + s_v[1]) / 2 + 3.5) * f_c_l
     f_v = (((s_v[0] * (1-red_v)) + s_l[1]) / 2) * f_c_v
 
     q_base_l, q_base_v = f_l / 4, f_v / 4
     
-    # Ajuste de Cuartos (Simulación de ritmo)
+    # Tabla de Cuartos
     qs = {
-        "Cuarto": ["Q1", "Q2", "Q3", "Q4 (Clutch)", "FINAL"],
+        "Cuarto": ["Q1", "Q2", "Q3", "Q4 (Clutch)", "TOTAL FINAL"],
         l_data['nickname']: [round(q_base_l,1), round(q_base_l,1), round(q_base_l*0.95,1), round(q_base_l*s_l[2],1), round(f_l*s_l[2],1)],
         v_data['nickname']: [round(q_base_v,1), round(q_base_v,1), round(q_base_v*0.95,1), round(q_base_v*s_v[2],1), round(f_v*s_v[2],1)]
     }
     
-    df = pd.DataFrame(qs)
-    st.table(df)
+    st.table(pd.DataFrame(qs))
     
     h_final = round(-( (f_l*s_l[2]) - (f_v*s_v[2]) ), 1)
-    st.info(f"🎯 Hándicap Sugerido Final: **{h_final}**")
+    st.info(f"🎯 Hándicap Sugerido (Incluyendo Factores de Cierre): **{h_final}**")
