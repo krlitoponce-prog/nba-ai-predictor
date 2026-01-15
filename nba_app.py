@@ -5,9 +5,10 @@ from bs4 import BeautifulSoup
 from nba_api.stats.static import teams
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V5.7", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI ELITE V5.8", layout="wide", page_icon="🏀")
 
 # --- 2. MOTOR DE RATINGS ---
+# [Off_Rating, Def_Rating, Clutch_Factor]
 ADVANCED_STATS = {
     "Celtics": [122.5, 110.2, 1.12], "Thunder": [118.5, 111.0, 1.08], "Nuggets": [119.0, 112.5, 1.18],
     "Timberwolves": [114.0, 108.5, 0.94], "Mavericks": [117.5, 115.0, 1.10], "Bucks": [116.0, 116.5, 0.90],
@@ -23,7 +24,7 @@ ADVANCED_STATS = {
 
 STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "williamson", "ingram", "mccollum", "butler", "adebayo", "george", "leonard", "fox", "sabonis", "brunson", "mitchell", "siakam", "barnes", "markkanen", "lavine", "derozan", "bridges"]
 
-# --- 3. EXTRACCIÓN DE DATOS ---
+# --- 3. EXTRACCIÓN Y SIDEBAR (CARRITO PERMANENTE) ---
 def get_all_context():
     try:
         url = "https://espndeportes.espn.com/basquetbol/nba/lesiones"
@@ -31,32 +32,23 @@ def get_all_context():
         soup = BeautifulSoup(res.text, 'html.parser')
         injuries = {}
         for title in soup.find_all('div', class_='Table__Title'):
-            # Limpieza de nombre para matchear nicknames
             team_raw = title.text.strip().lower()
-            # Diccionario manual de mapeo para casos difíciles como 76ers
             if "76ers" in team_raw: team_key = "76ers"
-            elif "trail blazers" in team_raw: team_key = "trail blazers"
             else: team_key = team_raw.split()[-1]
-            
             rows = title.find_parent('div', class_='ResponsiveTable').find_all('tr', class_='Table__TR')
             injuries[team_key] = [r.find_all('td')[0].text.strip() for r in rows[1:]]
         return injuries
     except: return {}
 
 all_nba_teams = teams.get_teams()
-team_names = sorted([t['full_name'] for t in all_nba_teams])
 inj_db = get_all_context()
 
-# --- 4. SIDEBAR: CARRITO PERMANENTE ---
 with st.sidebar:
-    st.header("⚙️ Ajustes de Energía")
+    st.header("⚙️ Ajustes Físicos")
     b2b_l = st.toggle("Local en Back-to-Back")
     b2b_v = st.toggle("Visita en Back-to-Back")
     st.write("---")
-    st.header("📂 Carrito de Referencias")
-    st.caption("Los 30 equipos están siempre aquí 👇")
-    
-    # Renderizar todos los equipos siempre
+    st.header("📂 Carrito Permanente")
     for t_info in sorted(all_nba_teams, key=lambda x: x['nickname']):
         nick = t_info['nickname'].lower()
         bajas = inj_db.get(nick, [])
@@ -65,55 +57,58 @@ with st.sidebar:
                 for p in bajas:
                     impacto = "🔴" if any(s in p.lower() for s in STARS) else "🟡"
                     st.write(f"{impacto} {p}")
-            else:
-                st.write("✅ Web: Plantilla Completa")
-    
-    if st.button("🔄 REFRESCAR CONEXIÓN"): st.rerun()
+            else: st.write("✅ Plantilla Completa")
+    if st.button("🔄 ACTUALIZAR"): st.rerun()
 
-# --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V5.7: TERMINAL TOTAL")
-
-col1, col2 = st.columns(2)
-with col1:
-    l_name = st.selectbox("EQUIPO LOCAL", team_names, index=0)
+# --- 4. INTERFAZ Y CÁLCULO ---
+st.title("🏀 NBA AI PRO V5.8: TOTAL ENGINE")
+c1, c2 = st.columns(2)
+with c1:
+    l_name = st.selectbox("LOCAL", sorted([t['full_name'] for t in all_nba_teams]), index=0)
     l_data = next(t for t in all_nba_teams if t['full_name'] == l_name)
-    manual_star_l = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({l_data['nickname']})")
+    manual_l = st.checkbox(f"🚨 BAJA ESTRELLA ({l_data['nickname']})")
 
-with col2:
-    v_name = st.selectbox("EQUIPO VISITANTE", team_names, index=1)
+with c2:
+    v_name = st.selectbox("VISITANTE", sorted([t['full_name'] for t in all_nba_teams]), index=1)
     v_data = next(t for t in all_nba_teams if t['full_name'] == v_name)
-    manual_star_v = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({v_data['nickname']})")
+    manual_v = st.checkbox(f"🚨 BAJA ESTRELLA ({v_data['nickname']})")
 
-if st.button("🔥 GENERAR HANDICAP PRECISIÓN"):
-    # Lógica de Ratings
-    off_l, def_l, clu_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0])
-    off_v, def_v, clu_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0])
+if st.button("🔥 ANALIZAR PARTIDO"):
+    # Stats base
+    s_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0])
+    s_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0])
 
-    # 1. Penalización Lesiones (Manual + Auto)
-    red_l = 0.08 if manual_star_l else 0
-    if not manual_star_l:
+    # Penalizaciones (Manual + Auto)
+    red_l = 0.08 if manual_l else 0
+    if not manual_l:
         for p in inj_db.get(l_data['nickname'].lower(), []):
             red_l += 0.045 if any(s in p.lower() for s in STARS) else 0.015
     
-    red_v = 0.08 if manual_star_v else 0
-    if not manual_star_v:
+    red_v = 0.08 if manual_v else 0
+    if not manual_v:
         for p in inj_db.get(v_data['nickname'].lower(), []):
             red_v += 0.045 if any(s in p.lower() for s in STARS) else 0.015
 
-    # CAP de daño (Lógica Humana)
-    red_l, red_v = min(red_l, 0.15), min(red_v, 0.15)
+    # Cansancio y Localía
+    f_c_l = 0.975 if b2b_l else 1.0
+    f_c_v = 0.975 if b2b_v else 1.0
+    
+    # PROYECCIÓN POR CUARTOS
+    # El Q4 se ve afectado por el Clutch Factor
+    f_l = (((s_l[0] * (1-red_l)) + s_v[1]) / 2 + 3.5) * f_c_l
+    f_v = (((s_v[0] * (1-red_v)) + s_l[1]) / 2) * f_c_v
 
-    # 2. Fuerza Bruta (Con Localía +3.5 y Cansancio)
-    f_cansancio_l = 0.975 if b2b_l else 1.0
-    f_cansancio_v = 0.975 if b2b_v else 1.0
-
-    f_l = (((off_l * (1-red_l)) + def_v) / 2 + 3.5) * f_cansancio_l
-    f_v = (((off_v * (1-red_v)) + def_l) / 2) * f_cansancio_v
-
-    # 3. Resultado Final
-    res_l, res_v = f_l * clu_l, f_v * clu_v
-    handicap = round(-(res_l - res_v), 1)
-
-    st.divider()
-    st.subheader(f"📊 {l_data['nickname']} {round(res_l,1)} - {round(res_v,1)} {v_data['nickname']}")
-    st.info(f"🎯 Hándicap Sugerido: **{handicap}**")
+    q_base_l, q_base_v = f_l / 4, f_v / 4
+    
+    # Ajuste de Cuartos (Simulación de ritmo)
+    qs = {
+        "Cuarto": ["Q1", "Q2", "Q3", "Q4 (Clutch)", "FINAL"],
+        l_data['nickname']: [round(q_base_l,1), round(q_base_l,1), round(q_base_l*0.95,1), round(q_base_l*s_l[2],1), round(f_l*s_l[2],1)],
+        v_data['nickname']: [round(q_base_v,1), round(q_base_v,1), round(q_base_v*0.95,1), round(q_base_v*s_v[2],1), round(f_v*s_v[2],1)]
+    }
+    
+    df = pd.DataFrame(qs)
+    st.table(df)
+    
+    h_final = round(-( (f_l*s_l[2]) - (f_v*s_v[2]) ), 1)
+    st.info(f"🎯 Hándicap Sugerido Final: **{h_final}**")
