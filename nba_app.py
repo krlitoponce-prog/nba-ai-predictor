@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from nba_api.stats.static import teams
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V5.5", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI ELITE V5.6", layout="wide", page_icon="🏀")
 
 # --- 2. EL PITÓN: MOTOR DE RATINGS ---
 ADVANCED_STATS = {
@@ -23,9 +23,6 @@ ADVANCED_STATS = {
 
 STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "williamson", "ingram", "mccollum", "butler", "adebayo", "george", "leonard", "fox", "sabonis", "brunson", "mitchell", "siakam", "barnes", "markkanen", "lavine", "derozan", "bridges"]
 
-if 'analisis_activo' not in st.session_state:
-    st.session_state.analisis_activo = False
-
 def get_all_context():
     try:
         url = "https://espndeportes.espn.com/basquetbol/nba/lesiones"
@@ -42,9 +39,9 @@ def get_all_context():
 # --- 3. SIDEBAR ---
 inj_db = get_all_context()
 with st.sidebar:
-    st.header("⚙️ Configuración")
-    b2b_l = st.toggle("¿LOCAL jugó ayer?", help="Reduce energía un 2.5%")
-    b2b_v = st.toggle("¿VISITANTE jugó ayer?", help="Reduce energía un 2.5%")
+    st.header("⚙️ Ajustes Físicos")
+    b2b_l = st.toggle("¿LOCAL jugó ayer?")
+    b2b_v = st.toggle("¿VISITANTE jugó ayer?")
     st.write("---")
     st.header("📂 Carrito de Referencias")
     if inj_db:
@@ -53,10 +50,10 @@ with st.sidebar:
                 for p in lista:
                     impacto = "🔴" if any(s in p.lower() for s in STARS) else "🟡"
                     st.write(f"{impacto} {p}")
-    if st.button("🔄 RECARGAR"): st.rerun()
+    if st.button("🔄 RECARGAR WEB"): st.rerun()
 
 # --- 4. INTERFAZ ---
-st.title("🏀 NBA AI PRO: V5.5 (Humanized)")
+st.title("🏀 NBA AI PRO: V5.6 (Manual Star Override)")
 all_teams = teams.get_teams()
 team_names = sorted([t['full_name'] for t in all_teams])
 
@@ -64,49 +61,44 @@ c1, c2 = st.columns(2)
 with c1:
     l_name = st.selectbox("LOCAL", team_names, index=0)
     l_data = next(t for t in all_teams if t['full_name'] == l_name)
+    star_out_l = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({l_data['nickname']})")
+
 with c2:
     v_name = st.selectbox("VISITANTE", team_names, index=1)
     v_data = next(t for t in all_teams if t['full_name'] == v_name)
+    star_out_v = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({v_data['nickname']})")
 
-if st.button("🔥 CALCULAR PRONÓSTICO"):
-    st.session_state.analisis_activo = True
+if st.button("🔥 CALCULAR CON AJUSTE MANUAL"):
+    # LÓGICA DE CÁLCULO
+    off_l, def_l, clu_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0])
+    off_v, def_v, clu_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0])
 
-# --- 5. LÓGICA PORCENTUAL (V5.5) ---
-if st.session_state.analisis_activo:
-    with st.container():
-        # Copiamos stats originales
-        off_l, def_l, clu_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0])
-        off_v, def_v, clu_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0])
+    # Penalización Cansancio
+    f_cansancio_l = 0.975 if b2b_l else 1.0
+    f_cansancio_v = 0.975 if b2b_v else 1.0
 
-        # Penalización Cansancio (Máximo 3% del rendimiento total)
-        f_cansancio_l = 0.975 if b2b_l else 1.0
-        f_cansancio_v = 0.975 if b2b_v else 1.0
+    # Penalización Lesiones (Web + Manual)
+    red_off_l = 0.08 if star_out_l else 0 # 8% directo si marcas el checkbox
+    red_off_v = 0.08 if star_out_v else 0
 
-        # Penalización Lesiones (Tope máximo de 10% de reducción)
-        bajas_l = inj_db.get(l_data['nickname'].lower(), [])
-        bajas_v = inj_db.get(v_data['nickname'].lower(), [])
-        
-        red_off_l = 0
-        for p in bajas_l:
+    # Sumar lo que diga la web si no marcaste el manual
+    if not star_out_l:
+        for p in inj_db.get(l_data['nickname'].lower(), []):
             red_off_l += 0.045 if any(s in p.lower() for s in STARS) else 0.015
-        red_off_l = min(red_off_l, 0.12) # CAP: No perder más del 12% del ataque
-
-        red_off_v = 0
-        for p in bajas_v:
+    
+    if not star_out_v:
+        for p in inj_db.get(v_data['nickname'].lower(), []):
             red_off_v += 0.045 if any(s in p.lower() for s in STARS) else 0.015
-        red_off_v = min(red_off_v, 0.12)
 
-        # Cálculo Final de Fuerza con Ajuste de Localía (+3.5 pts reales)
-        fuerza_l = (((off_l * (1 - red_off_l)) + def_v) / 2) * f_cansancio_l + 3.5
-        fuerza_v = (((off_v * (1 - red_off_v)) + def_l) / 2) * f_cansancio_v
+    red_off_l = min(red_off_l, 0.15)
+    red_off_v = min(red_off_v, 0.15)
 
-        # Aplicación Clutch (con límite)
-        clu_l_final = max(clu_l, 0.90)
-        clu_v_final = max(clu_v, 0.90)
-        
-        final_l = fuerza_l * clu_l_final
-        final_v = fuerza_v * clu_v_final
-        h_ideal = round(-(final_l - final_v), 1)
+    fuerza_l = (((off_l * (1 - red_off_l)) + def_v) / 2) * f_cansancio_l + 3.5
+    fuerza_v = (((off_v * (1 - red_off_v)) + def_l) / 2) * f_cansancio_v
 
-        st.success(f"📍 Proyectado: {l_data['nickname']} {round(final_l,1)} - {round(final_v,1)} {v_data['nickname']}")
-        st.info(f"🎯 Hándicap IA Sugerido: **{h_ideal}**")
+    final_l = fuerza_l * clu_l
+    final_v = fuerza_v * clu_v
+    h_ideal = round(-(final_l - final_v), 1)
+
+    st.success(f"📍 Proyectado Final: {l_data['nickname']} {round(final_l,1)} - {round(final_v,1)} {v_data['nickname']}")
+    st.info(f"🎯 Hándicap IA Sugerido: **{h_ideal}**")
