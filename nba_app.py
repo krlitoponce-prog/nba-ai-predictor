@@ -5,9 +5,9 @@ from bs4 import BeautifulSoup
 from nba_api.stats.static import teams
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V7.0", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="NBA AI ELITE V7.1", layout="wide", page_icon="🛡️")
 
-# --- 2. BASE DE DATOS (MANTENIDA) ---
+# --- 2. BASE DE DATOS (ADN NBA) ---
 ADVANCED_STATS = {
     "Celtics": [123.5, 110.5, 1.12, 4.8, 0.99], "Thunder": [119.5, 110.0, 1.09, 3.8, 1.02],
     "Nuggets": [118.0, 112.0, 1.18, 5.8, 0.97], "76ers": [116.5, 113.5, 1.02, 3.5, 0.98],
@@ -60,59 +60,56 @@ with st.sidebar:
             else: st.write("✅ Plantilla Completa")
     if st.button("🔄 ACTUALIZAR WEB"): st.rerun()
 
-# --- 4. INTERFAZ Y SELECTORES ---
-st.title("🏀 NBA AI PRO V7.0: PERSISTENT ENGINE")
+# --- 4. INTERFAZ SUPERIOR ---
+st.title("🏀 NBA AI PRO V7.1: PERSISTENT TRACKER")
 
 c1, c2 = st.columns(2)
 with c1:
     l_name = st.selectbox("LOCAL", sorted([t['full_name'] for t in all_nba_teams]), index=0)
     l_data = next(t for t in all_nba_teams if t['full_name'] == l_name)
+    s_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0, 3.5, 1.0])
     m_l = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({l_data['nickname']})")
+    # CORRECCIÓN: Ritmo de Juego en su lugar correspondiente
+    st.metric(f"Ritmo de Juego {l_data['nickname']}", f"{s_l[4]}x", f"Clutch: x{s_l[2]}")
 
 with c2:
     v_name = st.selectbox("VISITANTE", sorted([t['full_name'] for t in all_nba_teams]), index=1)
     v_data = next(t for t in all_nba_teams if t['full_name'] == v_name)
+    s_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0, 3.5, 1.0])
     m_v = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({v_data['nickname']})")
+    # CORRECCIÓN: Ritmo de Juego en su lugar correspondiente
+    st.metric(f"Ritmo de Juego {v_data['nickname']}", f"{s_v[4]}x", f"Clutch: x{s_v[2]}")
 
-# --- 5. GESTIÓN DE MEMORIA (SESSION STATE) ---
-if 'analisis' not in st.session_state:
-    st.session_state.analisis = None
+# --- 5. LÓGICA DE MEMORIA ---
+if 'analisis' not in st.session_state: st.session_state.analisis = None
 
 if st.button("🚀 INICIAR ANÁLISIS"):
-    s_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0, 3.5, 1.0])
-    s_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0, 3.5, 1.0])
-    
     red_l = min(0.15, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_data['nickname'].lower(), [])))
     red_v = min(0.15, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_data['nickname'].lower(), [])))
-    
-    ritmo = (s_l[4] + s_v[4]) / 2
-    pot_l = (((s_l[0] * (1-red_l)) * 0.7) + (s_v[1] * 0.3)) * ritmo
-    pot_v = (((s_v[0] * (1-red_v)) * 0.7) + (s_l[1] * 0.3)) * ritmo
-    
+    ritmo_p = (s_l[4] + s_v[4]) / 2
+    pot_l = (((s_l[0] * (1-red_l)) * 0.7) + (s_v[1] * 0.3)) * ritmo_p
+    pot_v = (((s_v[0] * (1-red_v)) * 0.7) + (s_l[1] * 0.3)) * ritmo_p
     res_l, res_v = round((pot_l + s_l[3]) * s_l[2], 1), round(pot_v * s_v[2], 1)
     
-    # Guardar todo en memoria
     st.session_state.analisis = {
-        "res_l": res_l, "res_v": res_v,
-        "h_final": round(-(res_l - res_v), 1),
-        "total": round(res_l + res_v, 1),
-        "ritmo": ritmo,
+        "res_l": res_l, "res_v": res_v, "h_final": round(-(res_l - res_v), 1),
+        "total": round(res_l + res_v, 1), "ritmo_p": ritmo_p,
         "l_nick": l_data['nickname'], "v_nick": v_data['nickname'],
         "s_l_clutch": s_l[2], "s_v_clutch": s_v[2]
     }
 
-# --- 6. MOSTRAR RESULTADOS PERSISTENTES ---
+# --- 6. RESULTADOS FIJOS ---
 if st.session_state.analisis:
     a = st.session_state.analisis
     st.divider()
+    # CORRECCIÓN: Hándicap Sugerido movido a la métrica central
     st.subheader(f"📊 PROYECCIÓN FIJA: {a['l_nick']} {a['res_l']} - {a['res_v']} {a['v_nick']}")
-    
     m1, m2, m3 = st.columns(3)
     m1.metric("Hándicap Sugerido", a['h_final'])
     m2.metric("Total Puntos (O/U)", a['total'])
-    m3.metric("Ritmo del Juego", f"{round(a['ritmo'], 2)}x")
+    m3.metric("Ritmo Combinado", f"{round(a['ritmo_p'], 2)}x")
 
-    # --- MONITOR DE DESVIACIÓN (YA NO RESETEA EL ANÁLISIS) ---
+    # --- MONITOR DE DESVIACIÓN ---
     st.write("---")
     st.subheader("⏱️ MONITOR DE DESVIACIÓN EN VIVO")
     lc1, lc2, lc3 = st.columns(3)
@@ -124,7 +121,6 @@ if st.session_state.analisis:
         factor = 2 if "Q2" in tiempo else 1.33
         proy_final_live = (live_l + live_v) * factor
         desv = round(proy_final_live - a['total'], 1)
-        
         st.write(f"**Tendencia Final Actual:** {round(proy_final_live, 1)} puntos")
         if desv > 5: st.error(f"🔥 DESVIACIÓN: +{desv} pts (Tendencia OVER)")
         elif desv < -5: st.success(f"❄️ DESVIACIÓN: {desv} pts (Tendencia UNDER)")
