@@ -1,11 +1,12 @@
 import streamlit as st
 import requests
 import pandas as pd
+import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
 from nba_api.stats.static import teams
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V7.2", layout="wide", page_icon="🔋")
+st.set_page_config(page_title="NBA AI ELITE V7.3", layout="wide", page_icon="🚀")
 
 # --- 2. BASE DE DATOS ADN NBA (Preservada íntegramente) ---
 ADVANCED_STATS = {
@@ -28,9 +29,9 @@ ADVANCED_STATS = {
 
 STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "mitchell", "brunson", "wembanayama", "morant", "adebayo", "butler", "banchero", "sabonis", "fox"]
 
-# --- 3. EXTRACCIÓN DE LESIONES ---
+# --- 3. EXTRACCIÓN Y UTILIDADES ---
 @st.cache_data(ttl=600)
-def get_all_context():
+def get_injuries():
     try:
         url = "https://espndeportes.espn.com/basquetbol/nba/lesiones"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -45,141 +46,147 @@ def get_all_context():
     except: return {}
 
 all_nba_teams = teams.get_teams()
-inj_db = get_all_context()
+inj_db = get_injuries()
 
-# --- 4. SIDEBAR: CONTROL DE FATIGA Y GIRAS ---
+# --- 4. SIDEBAR: FACTORES AVANZADOS ---
 with st.sidebar:
-    st.header("📂 Carrito Permanente")
-    st.write("---")
-    st.subheader("🔋 Control de Fatiga")
+    st.header("⚙️ Configuración V7.3")
     
-    st.markdown("**Local:**")
-    b2b_l = st.toggle("Local jugó ayer (B2B)")
-    regreso_l = st.toggle("🔙 Regreso a Casa (B2B desde Visita)")
-    gira_l = st.toggle("🏠 Gira Local (Estancia en Casa)")
+    st.subheader("🔋 Fatiga & Giras")
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        b2b_l = st.toggle("Local B2B")
+        regreso_l = st.toggle("🔙 Casa B2B")
+    with col_f2:
+        b2b_v = st.toggle("Visita B2B")
+        viaje_v = st.toggle("✈️ Viaje Largo")
     
-    st.write("---")
-    st.markdown("**Visitante:**")
-    b2b_v = st.toggle("Visita jugó ayer (B2B)")
-    viaje_v = st.toggle("✈️ Gira de Visitante / Viaje Largo")
-    
-    st.write("---")
+    st.subheader("🎯 Contexto & Motivación")
+    contexto = st.selectbox("Importancia del Partido", 
+                            ["Regular Season", "Duelo Directo / Playoff Push", "Último de Gira (Agotamiento)"])
+    venganza = st.checkbox("🔥 Revenge Game (Venganza)")
+    humillacion = st.checkbox("🛡️ Blowout Recovery (Viene de paliza)")
+
+    st.subheader("🏀 Lineup Depth (Faltas Clave)")
+    c_pg, c_c = st.columns(2)
+    pg_out = c_pg.checkbox("Falta Base (PG)")
+    c_out = c_c.checkbox("Falta Pívot (C)")
+
+    st.divider()
     for t_info in sorted(all_nba_teams, key=lambda x: x['nickname']):
         nick = t_info['nickname'].lower()
         bajas = inj_db.get(nick, [])
         with st.expander(f"📍 {nick.upper()}"):
             if bajas:
                 for p in bajas:
-                    impacto = "🔴" if any(s in p.lower() for s in STARS) else "🟡"
-                    st.write(f"{impacto} {p}")
+                    st.write(f"{'🔴' if any(s in p.lower() for s in STARS) else '🟡'} {p}")
             else: st.write("✅ Plantilla Completa")
-    if st.button("🔄 ACTUALIZAR WEB"): st.rerun()
 
 # --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V7.2: ULTIMATE ENGINE")
+st.title("🏀 NBA AI PRO V7.3: ANALYTICS ENGINE")
 
 c1, c2 = st.columns(2)
 with c1:
     l_name = st.selectbox("LOCAL", sorted([t['full_name'] for t in all_nba_teams]), index=0)
-    l_data = next(t for t in all_nba_teams if t['full_name'] == l_name)
-    s_l = ADVANCED_STATS.get(l_data['nickname'], [112, 114, 1.0, 3.5, 1.0])
-    m_l = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({l_data['nickname']})")
-    st.metric(f"Ritmo {l_data['nickname']}", f"{s_l[4]}x", f"Localía: +{s_l[3]}")
+    l_nick = next(t for t in all_nba_teams if t['full_name'] == l_name)['nickname']
+    s_l = ADVANCED_STATS.get(l_nick, [112, 114, 1.0, 3.5, 1.0])
+    m_l = st.checkbox(f"🚨 Baja Estrella ({l_nick})")
+    st.metric("Potencial Base", s_l[0], f"+{s_l[3]} Home")
 
 with c2:
     v_name = st.selectbox("VISITANTE", sorted([t['full_name'] for t in all_nba_teams]), index=1)
-    v_data = next(t for t in all_nba_teams if t['full_name'] == v_name)
-    s_v = ADVANCED_STATS.get(v_data['nickname'], [111, 115, 1.0, 3.5, 1.0])
-    m_v = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({v_data['nickname']})")
-    st.metric(f"Ritmo {v_data['nickname']}", f"{s_v[4]}x", "Visitante")
+    v_nick = next(t for t in all_nba_teams if t['full_name'] == v_name)['nickname']
+    s_v = ADVANCED_STATS.get(v_nick, [111, 115, 1.0, 3.5, 1.0])
+    m_v = st.checkbox(f"🚨 Baja Estrella ({v_nick})")
+    st.metric("Potencial Base", s_v[0], "Visitor")
 
-# --- 6. LÓGICA DE PROYECCIÓN AVANZADA ---
-if 'analisis' not in st.session_state: st.session_state.analisis = None
-
+# --- 6. MOTOR DE CÁLCULO V7.3 ---
 if st.button("🚀 INICIAR ANÁLISIS"):
-    # Penalizaciones por Lesiones
-    red_l = min(0.15, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_data['nickname'].lower(), [])))
-    red_v = min(0.15, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_data['nickname'].lower(), [])))
+    # 1. Lesiones & Estrellas
+    red_l = min(0.15, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_nick.lower(), [])))
+    red_v = min(0.15, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_nick.lower(), [])))
+
+    # 2. Factores de Posición (PG/C)
+    ritmo_adj = -0.02 if pg_out else 0.0 # Falta de Base frena el ritmo
+    defensa_adj = 0.025 if c_out else 0.0 # Falta de Pívot facilita puntos rivales
+
+    # 3. Contexto & Motivación
+    bonus_revenge = 0.015 if venganza else 0.0
+    bonus_defensa = 0.02 if humillacion else 0.0 # Equipo se cierra más tras paliza
+    fatiga_gira = -0.035 if "Gira" in contexto else 0.0
+    playoff_intensidad = 0.97 if "Playoff" in contexto else 1.0 # Menos puntos en playoffs por defensa
+
+    # 4. Fatiga
+    f_l = 0.045 if regreso_l else (0.035 if b2b_l else 0.0)
+    f_v = 0.045 if viaje_v else (0.035 if b2b_v else 0.0)
     
-    # NUEVA LÓGICA: Fatiga y Bonos de Gira
-    # Local: Si es regreso a casa B2B, penaliza 4.5%. Si es B2B normal, 3.5%.
-    fatiga_l = 0.045 if regreso_l else (0.035 if b2b_l else 0.0)
-    bonus_gira_l = 0.015 if gira_l else 0.0
+    altitud = 1.012 if l_nick in ["Nuggets", "Jazz"] else 1.0
+    ritmo_p = (((s_l[4] + s_v[4]) / 2) + ritmo_adj) * (0.98 if (b2b_l or b2b_v or regreso_l) else 1.0) * playoff_intensidad
     
-    # Visitante: Si es viaje largo 4.5%, si solo es B2B 3.5%
-    fatiga_v = 0.045 if viaje_v else (0.035 if b2b_v else 0.0)
-    
-    # Bono Altitud
-    altitud_bonus = 1.012 if l_data['nickname'] in ["Nuggets", "Jazz"] else 1.0
-    
-    # Ritmo Combinado (Baja si hay cansancio)
-    ritmo_p = ((s_l[4] + s_v[4]) / 2) * (0.98 if (b2b_l or b2b_v or viaje_v or regreso_l) else 1.0)
-    
-    # Cálculo de Potencial (Factor defensivo 0.33 para realismo)
-    pot_l = ((((s_l[0] * (1 - (red_l + fatiga_l) + bonus_gira_l)) * 0.7) + (s_v[1] * 0.33 if (b2b_v or viaje_v) else s_v[1] * 0.3)) * ritmo_p) * altitud_bonus
-    pot_v = (((s_v[0] * (1 - (red_v + fatiga_v))) * 0.7) + (s_l[1] * 0.33 if (b2b_l or regreso_l) else s_l[1] * 0.3)) * ritmo_p
+    # 5. Potencial Final
+    pot_l = ((((s_l[0] * (1 - (red_l + f_l) + bonus_revenge)) * 0.7) + (s_v[1] * (0.33 + defensa_adj) if b2b_v else s_v[1] * 0.3)) * ritmo_p) * altitud
+    pot_v = ((((s_v[0] * (1 - (red_v + f_v + fatiga_gira))) * 0.7) + (s_l[1] * (0.33 + defensa_adj) if b2b_l else s_l[1] * 0.3)) * ritmo_p) * (1 - bonus_defensa)
     
     res_l, res_v = round((pot_l + s_l[3]) * s_l[2], 1), round(pot_v * s_v[2], 1)
     
-    # Distribución de Cuartos (26%, 26%, 24%, 24%)
+    # 6. Progresión de Cuartos
     dist = [0.26, 0.26, 0.24, 0.24]
-    q_l_base = [res_l * d for d in dist]
-    q_v_base = [res_v * d for d in dist]
+    q_l = [res_l * d for d in dist]
+    q_v = [res_v * d for d in dist]
     
-    # MODO CLUTCH (Ajuste si diferencia < 5)
-    clutch_mode = False
+    # Ajuste Clutch
+    clutch = False
     if abs(res_l - res_v) < 5:
-        clutch_mode = True
-        q_l_base[3] *= 0.95 # Baja el puntaje por defensa cerrada
-        q_v_base[3] *= 0.95
-        res_l = round(sum(q_l_base), 1)
-        res_v = round(sum(q_v_base), 1)
+        clutch = True
+        q_l[3] *= 0.95; q_v[3] *= 0.95
+        res_l, res_v = round(sum(q_l), 1), round(sum(q_v), 1)
 
-    st.session_state.analisis = {
-        "res_l": res_l, "res_v": res_v, "h_final": round(-(res_l - res_v), 1),
-        "total": round(res_l + res_v, 1), "ritmo_p": ritmo_p,
-        "l_nick": l_data['nickname'], "v_nick": v_data['nickname'],
-        "b2b_l": b2b_l, "b2b_v": b2b_v, "viaje": viaje_v, "regreso": regreso_l, "gira": gira_l,
-        "altitud": altitud_bonus > 1.0, "clutch": clutch_mode,
-        "q_l": q_l_base, "q_v": q_v_base
-    }
-
-# --- 7. RESULTADOS ---
-if st.session_state.analisis:
-    a = st.session_state.analisis
+    # --- 7. RESULTADOS VISUALES ---
     st.divider()
+    col_res1, col_res2 = st.columns([2, 1])
     
-    # Panel de Alertas Dinámicas
-    warn_cols = st.columns(4)
-    if a['regreso']: warn_cols[0].error("🔙 REGRESO A CASA: Fatiga de re-entrada (-4.5%)")
-    if a['gira']: warn_cols[1].success("🏠 GIRA LOCAL: Bono por estabilidad (+1.5%)")
-    if a['viaje']: warn_cols[2].error("✈️ GIRA VISITA: Fatiga de viaje (-4.5%)")
-    if a['altitud']: warn_cols[3].info("🏔️ ALTITUD: Bono Denver/Utah (+1.2%)")
-    if a['clutch']: st.warning("🔒 MODO CLUTCH: Partido cerrado, defensa intensificada en Q4.")
-    
-    st.subheader(f"📊 PROYECCIÓN: {a['l_nick']} {a['res_l']} - {a['res_v']} {a['v_nick']}")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Hándicap Sugerido", a['h_final'])
-    m2.metric("Total Puntos (O/U)", a['total'])
-    m3.metric("Ritmo Combinado", f"{round(a['ritmo_p'], 2)}x")
+    with col_res1:
+        st.subheader(f"📊 PROYECCIÓN: {l_nick} {res_l} - {res_v} {v_nick}")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Hándicap Sugerido", round(-(res_l - res_v), 1))
+        m2.metric("Total Puntos (O/U)", round(res_l + res_v, 1))
+        m3.metric("Ritmo Combinado", f"{round(ritmo_p, 2)}x")
+        
+        # Gráfico de Tendencia
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ac_l = [sum(q_l[:i+1]) for i in range(4)]
+        ac_v = [sum(q_v[:i+1]) for i in range(4)]
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], ac_l, marker='o', label=l_nick, color='green')
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], ac_v, marker='s', label=v_nick, color='blue')
+        ax.set_title("Progresión Acumulada de Puntos")
+        ax.legend()
+        st.pyplot(fig)
 
+    with col_res2:
+        st.info("💡 Factores Aplicados")
+        if venganza: st.write("🔥 Bono Venganza Activo")
+        if pg_out: st.write("🐢 Ritmo lento (Falta Base)")
+        if c_out: st.write("📂 Pintura débil (Falta Pívot)")
+        if clutch: st.write("🔒 Ajuste Clutch (Defensa Q4)")
+        if fatiga_gira: st.write("😴 Agotamiento fin de gira")
+        
+        # Tabla de cuartos
+        st.table(pd.DataFrame({
+            "Q": ["Q1", "Q2", "Q3", "Q4", "Total"],
+            l_nick: [round(x,1) for x in q_l] + [res_l],
+            v_nick: [round(x,1) for x in q_v] + [res_v]
+        }))
+
+    # --- 8. MONITOR DE DESVIACIÓN ---
     st.write("---")
-    st.subheader("⏱️ MONITOR DE DESVIACIÓN EN VIVO")
-    lc1, lc2, lc3 = st.columns(3)
-    with lc1: live_l = st.number_input(f"Puntos {a['l_nick']}", value=0, key="live_l")
-    with lc2: live_v = st.number_input(f"Puntos {a['v_nick']}", value=0, key="live_v")
-    with lc3: tiempo = st.selectbox("Tiempo Transcurrido", ["Final Q2 (Medio Tiempo)", "Final Q3"], key="tiempo_live")
-
+    st.subheader("⏱️ MONITOR EN VIVO")
+    lx1, lx2, lx3 = st.columns(3)
+    live_l = lx1.number_input(f"Puntos {l_nick}", value=0)
+    live_v = lx2.number_input(f"Puntos {v_nick}", value=0)
+    tiempo = lx3.selectbox("Tiempo", ["Medio Tiempo (Q2)", "Final Q3"])
+    
     if live_l > 0 or live_v > 0:
         factor = 2 if "Q2" in tiempo else 1.33
         p_final = (live_l + live_v) * factor
-        desv = round(p_final - a['total'], 1)
-        st.write(f"**Tendencia Actual:** {round(p_final, 1)} pts")
-        if desv > 5: st.error(f"🔥 DESVIACIÓN: +{desv} (OVER)")
-        elif desv < -5: st.success(f"❄️ DESVIACIÓN: {desv} (UNDER)")
-
-    # Tabla de Cuartos
-    qs = {"Periodo": ["Q1", "Q2", "Q3", "Q4", "TOTAL"],
-          a['l_nick']: [round(a['q_l'][0],1), round(a['q_l'][1],1), round(a['q_l'][2],1), round(a['q_l'][3],1), a['res_l']],
-          a['v_nick']: [round(a['q_v'][0],1), round(a['q_v'][1],1), round(a['q_v'][2],1), round(a['q_v'][3],1), a['res_v']]}
-    st.table(pd.DataFrame(qs))
+        desv = round(p_final - (res_l + res_v), 1)
+        st.write(f"Tendencia: {round(p_final, 1)} pts | Desv: {'🔥' if desv > 5 else '❄️' if desv < -5 else '✅'} {desv}")
