@@ -7,7 +7,7 @@ from nba_api.stats.static import teams
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="NBA AI ELITE V7.2", layout="wide", page_icon="🔋")
 
-# --- 2. BASE DE DATOS ADN NBA ---
+# --- 2. BASE DE DATOS ADN NBA (Preservada) ---
 ADVANCED_STATS = {
     "Celtics": [123.5, 110.5, 1.12, 4.8, 0.99], "Thunder": [119.5, 110.0, 1.09, 3.8, 1.02],
     "Nuggets": [118.0, 112.0, 1.18, 5.8, 0.97], "76ers": [116.5, 113.5, 1.02, 3.5, 0.98],
@@ -53,6 +53,7 @@ with st.sidebar:
     st.subheader("🔋 Control de Fatiga")
     b2b_l = st.toggle("Local jugó ayer (B2B)")
     b2b_v = st.toggle("Visita jugó ayer (B2B)")
+    viaje_v = st.toggle("✈️ Gira de Visitante / Viaje Largo")
     st.write("---")
     for t_info in sorted(all_nba_teams, key=lambda x: x['nickname']):
         nick = t_info['nickname'].lower()
@@ -66,7 +67,7 @@ with st.sidebar:
     if st.button("🔄 ACTUALIZAR WEB"): st.rerun()
 
 # --- 4. INTERFAZ ---
-st.title("🏀 NBA AI PRO V7.2: FATIGUE ENGINE")
+st.title("🏀 NBA AI PRO V7.2: FATIGUE & ALTITUDE ENGINE")
 
 c1, c2 = st.columns(2)
 with c1:
@@ -83,31 +84,54 @@ with c2:
     m_v = st.checkbox(f"🚨 FORZAR BAJA ESTRELLA ({v_data['nickname']})")
     st.metric(f"Ritmo {v_data['nickname']}", f"{s_v[4]}x", "Visitante")
 
-# --- 5. LÓGICA PERSISTENTE CON FATIGA ---
+# --- 5. LÓGICA DE PROYECCIÓN ---
 if 'analisis' not in st.session_state: st.session_state.analisis = None
 
 if st.button("🚀 INICIAR ANÁLISIS"):
-    # Penalizaciones base por lesiones
+    # Penalizaciones por lesiones (Estrellas)
     red_l = min(0.15, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_data['nickname'].lower(), [])))
     red_v = min(0.15, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_data['nickname'].lower(), [])))
     
-    # FACTOR FATIGA
+    # NUEVA LÓGICA: Fatiga de Viaje y B2B
     fatiga_l = 0.035 if b2b_l else 0.0
-    fatiga_v = 0.035 if b2b_v else 0.0
+    # Si es viaje largo se aplica 4.5%, si solo es B2B 3.5%
+    fatiga_v = 0.045 if viaje_v else (0.035 if b2b_v else 0.0)
     
-    ritmo_p = ((s_l[4] + s_v[4]) / 2) * (0.98 if (b2b_l or b2b_v) else 1.0)
+    # NUEVA LÓGICA: Bono de Altitud (Denver y Utah)
+    altitud_bonus = 1.012 if l_data['nickname'] in ["Nuggets", "Jazz"] else 1.0
     
-    # POTENCIAL CORREGIDO (Corrección de factor 1.02 a 0.33 para evitar proyecciones irreales) 
-    pot_l = (((s_l[0] * (1 - (red_l + fatiga_l))) * 0.7) + (s_v[1] * 0.33 if b2b_v else s_v[1] * 0.3)) * ritmo_p
+    ritmo_p = ((s_l[4] + s_v[4]) / 2) * (0.98 if (b2b_l or b2b_v or viaje_v) else 1.0)
+    
+    # Cálculo de Potencial (Corregido factor defensivo a 0.33)
+    pot_l = ((((s_l[0] * (1 - (red_l + fatiga_l))) * 0.7) + (s_v[1] * 0.33 if (b2b_v or viaje_v) else s_v[1] * 0.3)) * ritmo_p) * altitud_bonus
     pot_v = (((s_v[0] * (1 - (red_v + fatiga_v))) * 0.7) + (s_l[1] * 0.33 if b2b_l else s_l[1] * 0.3)) * ritmo_p
     
     res_l, res_v = round((pot_l + s_l[3]) * s_l[2], 1), round(pot_v * s_v[2], 1)
     
+    # Lógica de Cuartos Aproximados
+    # Distribución NBA estándar: Q1: 26%, Q2: 26%, Q3: 24%, Q4: 24%
+    dist = [0.26, 0.26, 0.24, 0.24]
+    q_l_base = [res_l * d for d in dist]
+    q_v_base = [res_v * d for d in dist]
+    
+    # AJUSTE CLUTCH: Si la diferencia es < 5 al iniciar Q4, la defensa aumenta (puntos bajan 5%)
+    clutch_mode = False
+    if abs(res_l - res_v) < 5:
+        clutch_mode = True
+        q_l_base[3] *= 0.95
+        q_v_base[3] *= 0.95
+        # Recalcular totales con el ajuste clutch
+        res_l = round(sum(q_l_base[0:3]) + q_l_base[3], 1)
+        res_v = round(sum(q_v_base[0:3]) + q_v_base[3], 1)
+
     st.session_state.analisis = {
         "res_l": res_l, "res_v": res_v, "h_final": round(-(res_l - res_v), 1),
         "total": round(res_l + res_v, 1), "ritmo_p": ritmo_p,
         "l_nick": l_data['nickname'], "v_nick": v_data['nickname'],
-        "s_l_clutch": s_l[2], "s_v_clutch": s_v[2], "b2b_l": b2b_l, "b2b_v": b2b_v
+        "s_l_clutch": s_l[2], "s_v_clutch": s_v[2], 
+        "b2b_l": b2b_l, "b2b_v": b2b_v, "viaje": viaje_v, "altitud": altitud_bonus > 1.0,
+        "clutch_active": clutch_mode,
+        "q_l": q_l_base, "q_v": q_v_base
     }
 
 # --- 6. RESULTADOS ---
@@ -115,8 +139,12 @@ if st.session_state.analisis:
     a = st.session_state.analisis
     st.divider()
     
-    if a['b2b_l'] or a['b2b_v']:
-        st.warning(f"⚠️ AVISO DE FATIGA: {'LOCAL' if a['b2b_l'] else ''} {'VISITA' if a['b2b_v'] else ''} en Back-to-Back. Rendimiento ajustado.")
+    # Alertas de Factores Externos
+    cols_warn = st.columns(3)
+    if a['b2b_l'] or a['b2b_v']: cols_warn[0].warning("⚠️ AVISO: Back-to-Back Detectado.")
+    if a['viaje']: cols_warn[1].error("✈️ FATIGA DE VIAJE: -4.5% al Visitante.")
+    if a['altitud']: cols_warn[2].info("🏔️ BONO ALTITUD: +1.2% al Local.")
+    if a['clutch_active']: st.success("🔒 MODO CLUTCH DETECTADO: Proyección ajustada por defensa de cierre (Diferencia < 5 pts).")
     
     st.subheader(f"📊 PROYECCIÓN: {a['l_nick']} {a['res_l']} - {a['res_v']} {a['v_nick']}")
     m1, m2, m3 = st.columns(3)
@@ -139,8 +167,8 @@ if st.session_state.analisis:
         if desv > 5: st.error(f"🔥 DESVIACIÓN: +{desv} (OVER)")
         elif desv < -5: st.success(f"❄️ DESVIACIÓN: {desv} (UNDER)")
 
-    q_l, q_v = a['res_l']/4, a['res_v']/4
+    # Tabla de Cuartos Optimizada
     qs = {"Periodo": ["Q1", "Q2", "Q3", "Q4", "TOTAL"],
-          a['l_nick']: [round(q_l,1), round(q_l,1), round(q_l*0.95,1), round(q_l*a['s_l_clutch'],1), a['res_l']],
-          a['v_nick']: [round(q_v,1), round(q_v,1), round(q_v*0.95,1), round(q_v*a['s_v_clutch'],1), a['res_v']]}
+          a['l_nick']: [round(a['q_l'][0],1), round(a['q_l'][1],1), round(a['q_l'][2],1), round(a['q_l'][3],1), a['res_l']],
+          a['v_nick']: [round(a['q_v'][0],1), round(a['q_v'][1],1), round(a['q_v'][2],1), round(a['q_v'][3],1), a['res_v']]}
     st.table(pd.DataFrame(qs))
