@@ -91,15 +91,15 @@ if st.button("🚀 INICIAR ANÁLISIS"):
     red_l = min(0.15, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_data['nickname'].lower(), [])))
     red_v = min(0.15, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_data['nickname'].lower(), [])))
     
-    # FACTOR FATIGA (Si jugaron ayer, rendimiento baja 3.5% adicional y defensa se vuelve más lenta)
+    # FACTOR FATIGA
     fatiga_l = 0.035 if b2b_l else 0.0
     fatiga_v = 0.035 if b2b_v else 0.0
     
-    ritmo_p = ((s_l[4] + s_v[4]) / 2) * (0.98 if (b2b_l or b2b_v) else 1.0) # El ritmo baja ligeramente por cansancio
+    ritmo_p = ((s_l[4] + s_v[4]) / 2) * (0.98 if (b2b_l or b2b_v) else 1.0)
     
-    # Potencial corregido por Fatiga y Lesiones
-    pot_l = (((s_l[0] * (1 - (red_l + fatiga_l))) * 0.7) + (s_v[1] * 1.02 if b2b_v else s_v[1] * 0.3)) * ritmo_p
-    pot_v = (((s_v[0] * (1 - (red_v + fatiga_v))) * 0.7) + (s_l[1] * 1.02 if b2b_l else s_l[1] * 0.3)) * ritmo_p
+    # POTENCIAL CORREGIDO (Corrección de factor 1.02 a 0.33 para evitar proyecciones irreales) 
+    pot_l = (((s_l[0] * (1 - (red_l + fatiga_l))) * 0.7) + (s_v[1] * 0.33 if b2b_v else s_v[1] * 0.3)) * ritmo_p
+    pot_v = (((s_v[0] * (1 - (red_v + fatiga_v))) * 0.7) + (s_l[1] * 0.33 if b2b_l else s_l[1] * 0.3)) * ritmo_p
     
     res_l, res_v = round((pot_l + s_l[3]) * s_l[2], 1), round(pot_v * s_v[2], 1)
     
@@ -115,7 +115,6 @@ if st.session_state.analisis:
     a = st.session_state.analisis
     st.divider()
     
-    # Alerta de Fatiga Visual
     if a['b2b_l'] or a['b2b_v']:
         st.warning(f"⚠️ AVISO DE FATIGA: {'LOCAL' if a['b2b_l'] else ''} {'VISITA' if a['b2b_v'] else ''} en Back-to-Back. Rendimiento ajustado.")
     
@@ -125,7 +124,6 @@ if st.session_state.analisis:
     m2.metric("Total Puntos (O/U)", a['total'])
     m3.metric("Ritmo Combinado", f"{round(a['ritmo_p'], 2)}x")
 
-    # Monitor de Desviación (Mantenido)
     st.write("---")
     st.subheader("⏱️ MONITOR DE DESVIACIÓN EN VIVO")
     lc1, lc2, lc3 = st.columns(3)
@@ -141,7 +139,6 @@ if st.session_state.analisis:
         if desv > 5: st.error(f"🔥 DESVIACIÓN: +{desv} (OVER)")
         elif desv < -5: st.success(f"❄️ DESVIACIÓN: {desv} (UNDER)")
 
-    # Tabla de Cuartos
     q_l, q_v = a['res_l']/4, a['res_v']/4
     qs = {"Periodo": ["Q1", "Q2", "Q3", "Q4", "TOTAL"],
           a['l_nick']: [round(q_l,1), round(q_l,1), round(q_l*0.95,1), round(q_l*a['s_l_clutch'],1), a['res_l']],
