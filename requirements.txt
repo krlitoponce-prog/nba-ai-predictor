@@ -1,6 +1,6 @@
 streamlit
-pandas
 requests
+pandas
 beautifulsoup4
 nba_api
-plotly
+matplotlib
