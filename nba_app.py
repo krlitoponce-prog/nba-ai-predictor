@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from nba_api.stats.static import teams
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V7.3", layout="wide", page_icon="🚀")
+st.set_page_config(page_title="NBA AI ELITE V7.4", layout="wide", page_icon="🚀")
 
 # --- 2. BASE DE DATOS ADN NBA (Preservada) ---
 ADVANCED_STATS = {
@@ -50,7 +50,7 @@ inj_db = get_injuries()
 
 # --- 4. SIDEBAR: FATIGA Y CONTEXTO ---
 with st.sidebar:
-    st.header("⚙️ Configuración V7.3")
+    st.header("⚙️ Configuración V7.4")
     
     st.subheader("🔋 Fatiga & Giras")
     col_f1, col_f2 = st.columns(2)
@@ -77,7 +77,7 @@ with st.sidebar:
             else: st.write("✅ Plantilla Completa")
 
 # --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V7.3: ANALYTICS ENGINE")
+st.title("🏀 NBA AI PRO V7.4: BALANCED ANALYTICS")
 
 c1, c2 = st.columns(2)
 with c1:
@@ -107,25 +107,27 @@ with c2:
     humillacion_v = st.checkbox("🛡️ Recuperación Paliza (Visita)", key="blow_v")
 
 # --- 6. MOTOR DE CÁLCULO ---
+if 'analisis' not in st.session_state: st.session_state.analisis = None
+
 if st.button("🚀 INICIAR ANÁLISIS"):
-    # Penalizaciones Lesiones
-    red_l = min(0.15, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_nick.lower(), [])))
-    red_v = min(0.15, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_nick.lower(), [])))
+    # Penalizaciones Lesiones (Límite aumentado a 0.22 para casos críticos)
+    red_l = min(0.22, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_nick.lower(), [])))
+    red_v = min(0.22, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_nick.lower(), [])))
 
     # Factores Alineación
     ritmo_adj = (-0.02 if l_pg_out else 0) + (-0.02 if v_pg_out else 0)
     def_adj_l = 0.025 if l_c_out else 0 
     def_adj_v = 0.025 if v_c_out else 0 
 
-    # NUEVA LÓGICA: Motivación para cada equipo
-    bonus_rev_l = 0.015 if venganza_l else 0.0
-    bonus_rev_v = 0.015 if venganza_v else 0.0
+    # Motivación (Ajustada a 3%)
+    bonus_rev_l = 0.03 if venganza_l else 0.0
+    bonus_rev_v = 0.03 if venganza_v else 0.0
     
-    # Recuperación de paliza aumenta la intensidad defensiva (reduce puntos del rival)
-    def_rev_l = 0.02 if humillacion_l else 0.0
-    def_rev_v = 0.02 if humillacion_v else 0.0
+    # Intensidad Defensiva (Ajustada a 5%)
+    def_rev_l = 0.05 if humillacion_l else 0.0
+    def_rev_v = 0.05 if humillacion_v else 0.0
 
-    # Contexto & Fatiga
+    # Contexto & Fatiga (Preservados)
     fat_gira_v = -0.035 if "Gira" in contexto else 0.0
     playoff_intensidad = 0.97 if "Playoff" in contexto else 1.0 
     f_l = 0.045 if regreso_l else (0.035 if b2b_l else 0.0)
@@ -135,7 +137,7 @@ if st.button("🚀 INICIAR ANÁLISIS"):
     alt_bonus = 1.012 if l_nick in ["Nuggets", "Jazz"] else 1.0
     ritmo_p = (((s_l[4] + s_v[4]) / 2) + ritmo_adj) * (0.98 if (b2b_l or b2b_v or regreso_l) else 1.0) * playoff_intensidad
     
-    # Potencial Final con todos los factores individuales
+    # Potencial Final
     pot_l = (((s_l[0] * (1 - (red_l + f_l) + bonus_rev_l + b_gira_l)) * 0.7) + (s_v[1] * (0.33 + def_adj_v) if (b2b_v or viaje_v) else s_v[1] * (0.3 + def_adj_v))) * ritmo_p * alt_bonus * (1 - def_rev_v)
     pot_v = (((s_v[0] * (1 - (red_v + f_v + fat_gira_v) + bonus_rev_v)) * 0.7) + (s_l[1] * (0.33 + def_adj_l) if (b2b_l or regreso_l) else s_l[1] * (0.3 + def_adj_l))) * ritmo_p * (1 - def_rev_l)
     
@@ -149,29 +151,51 @@ if st.button("🚀 INICIAR ANÁLISIS"):
         q_l[3] *= 0.95; q_v[3] *= 0.95
         res_l, res_v = round(sum(q_l), 1), round(sum(q_v), 1)
 
-    # --- 7. RESULTADOS ---
+    st.session_state.analisis = {
+        "res_l": res_l, "res_v": res_v, "total": round(res_l + res_v, 1),
+        "l_nick": l_nick, "v_nick": v_nick, "q_l": q_l, "q_v": q_v, "ritmo": ritmo_p
+    }
+
+# --- 7. RESULTADOS Y MONITOR ---
+if st.session_state.analisis:
+    a = st.session_state.analisis
     st.divider()
     col_r1, col_r2 = st.columns([2, 1])
     with col_r1:
-        st.subheader(f"📊 PROYECCIÓN: {l_nick} {res_l} - {res_v} {v_nick}")
+        st.subheader(f"📊 PROYECCIÓN: {a['l_nick']} {a['res_l']} - {a['res_v']} {a['v_nick']}")
         m1, m2, m3 = st.columns(3)
-        m1.metric("Hándicap", round(-(res_l - res_v), 1))
-        m2.metric("Total Puntos", round(res_l + res_v, 1))
-        m3.metric("Ritmo", f"{round(ritmo_p, 2)}x")
+        m1.metric("Hándicap", round(-(a['res_l'] - a['res_v']), 1))
+        m2.metric("Total Puntos", a['total'])
+        m3.metric("Ritmo", f"{round(a['ritmo'], 2)}x")
         
+        # Gráfico
         fig, ax = plt.subplots(figsize=(8, 3.5))
-        ax.plot(["Q1", "Q2", "Q3", "Q4"], [sum(q_l[:i+1]) for i in range(4)], marker='o', label=l_nick, color='#1D428A')
-        ax.plot(["Q1", "Q2", "Q3", "Q4"], [sum(q_v[:i+1]) for i in range(4)], marker='s', label=v_nick, color='#CE1141')
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], [sum(a['q_l'][:i+1]) for i in range(4)], marker='o', label=a['l_nick'], color='#1D428A')
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], [sum(a['q_v'][:i+1]) for i in range(4)], marker='s', label=a['v_nick'], color='#CE1141')
         ax.set_title("Progresión Acumulada")
         ax.legend(); st.pyplot(fig)
 
-    with col_r2:
-        st.info("💡 Análisis de Impacto")
-        if venganza_l: st.write(f"🔥 {l_nick} busca venganza.")
-        if venganza_v: st.write(f"🔥 {v_nick} busca venganza.")
-        if humillacion_l: st.write(f"🛡️ {l_nick} cerrará defensa tras paliza.")
-        if humillacion_v: st.write(f"🛡️ {v_nick} cerrará defensa tras paliza.")
-        
+    with col_res2:
         st.table(pd.DataFrame({"Q": ["Q1","Q2","Q3","Q4","Total"], 
-                               l_nick: [round(x,1) for x in q_l] + [res_l], 
-                               v_nick: [round(x,1) for x in q_v] + [res_v]}))
+                               a['l_nick']: [round(x,1) for x in a['q_l']] + [a['res_l']], 
+                               a['v_nick']: [round(x,1) for x in a['q_v']] + [a['res_v']]}))
+
+    # --- MONITOR DE DESVIACIÓN EN VIVO ---
+    st.write("---")
+    st.subheader("⏱️ MONITOR DE DESVIACIÓN EN VIVO")
+    lx1, lx2, lx3 = st.columns(3)
+    live_l = lx1.number_input(f"Puntos en vivo {a['l_nick']}", value=0)
+    live_v = lx2.number_input(f"Puntos en vivo {a['v_nick']}", value=0)
+    tiempo_trans = lx3.selectbox("Tiempo Transcurrido", ["Inicio", "Final Q1", "Medio Tiempo (Q2)", "Final Q3"])
+    
+    if live_l > 0 or live_v > 0:
+        # Factores de proyección según tiempo
+        f_tiempos = {"Inicio": 4.0, "Final Q1": 4.0, "Medio Tiempo (Q2)": 2.0, "Final Q3": 1.33}
+        factor = f_tiempos[tiempo_trans]
+        p_final_total = (live_l + live_v) * factor
+        desv = round(p_final_total - a['total'], 1)
+        
+        st.write(f"**Tendencia Proyectada:** {round(p_final_total, 1)} pts")
+        if desv > 8: st.error(f"🔥 DESVIACIÓN ALTA (OVER): +{desv}")
+        elif desv < -8: st.success(f"❄️ DESVIACIÓN ALTA (UNDER): {desv}")
+        else: st.info(f"✅ En línea con la proyección: {desv}")
