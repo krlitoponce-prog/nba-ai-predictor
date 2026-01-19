@@ -67,6 +67,11 @@ with st.sidebar:
                             ["Regular Season", "Duelo Directo / Playoff Push", "Último de Gira (Agotamiento)"])
 
     st.divider()
+    # Botón de actualización web restaurado
+    if st.button("🔄 ACTUALIZAR WEB"): 
+        st.cache_data.clear()
+        st.rerun()
+
     for t_info in sorted(all_nba_teams, key=lambda x: x['nickname']):
         nick = t_info['nickname'].lower()
         bajas = inj_db.get(nick, [])
@@ -110,7 +115,7 @@ with c2:
 if 'analisis' not in st.session_state: st.session_state.analisis = None
 
 if st.button("🚀 INICIAR ANÁLISIS"):
-    # Penalizaciones Lesiones (Límite aumentado a 0.22 para casos críticos)
+    # Penalizaciones Lesiones (Límite 22% para casos críticos)
     red_l = min(0.22, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_nick.lower(), [])))
     red_v = min(0.22, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_nick.lower(), [])))
 
@@ -119,15 +124,11 @@ if st.button("🚀 INICIAR ANÁLISIS"):
     def_adj_l = 0.025 if l_c_out else 0 
     def_adj_v = 0.025 if v_c_out else 0 
 
-    # Motivación (Ajustada a 3%)
-    bonus_rev_l = 0.03 if venganza_l else 0.0
-    bonus_rev_v = 0.03 if venganza_v else 0.0
-    
-    # Intensidad Defensiva (Ajustada a 5%)
-    def_rev_l = 0.05 if humillacion_l else 0.0
-    def_rev_v = 0.05 if humillacion_v else 0.0
+    # Motivación (3%) e Intensidad Defensiva (5%)
+    bonus_rev_l, bonus_rev_v = (0.03 if venganza_l else 0.0), (0.03 if venganza_v else 0.0)
+    def_rev_l, def_rev_v = (0.05 if humillacion_l else 0.0), (0.05 if humillacion_v else 0.0)
 
-    # Contexto & Fatiga (Preservados)
+    # Contexto & Fatiga
     fat_gira_v = -0.035 if "Gira" in contexto else 0.0
     playoff_intensidad = 0.97 if "Playoff" in contexto else 1.0 
     f_l = 0.045 if regreso_l else (0.035 if b2b_l else 0.0)
@@ -160,15 +161,16 @@ if st.button("🚀 INICIAR ANÁLISIS"):
 if st.session_state.analisis:
     a = st.session_state.analisis
     st.divider()
-    col_r1, col_r2 = st.columns([2, 1])
-    with col_r1:
+    col_res1, col_res2 = st.columns([2, 1])
+    
+    with col_res1:
         st.subheader(f"📊 PROYECCIÓN: {a['l_nick']} {a['res_l']} - {a['res_v']} {a['v_nick']}")
         m1, m2, m3 = st.columns(3)
         m1.metric("Hándicap", round(-(a['res_l'] - a['res_v']), 1))
         m2.metric("Total Puntos", a['total'])
         m3.metric("Ritmo", f"{round(a['ritmo'], 2)}x")
         
-        # Gráfico
+        # Gráfico Progresión
         fig, ax = plt.subplots(figsize=(8, 3.5))
         ax.plot(["Q1", "Q2", "Q3", "Q4"], [sum(a['q_l'][:i+1]) for i in range(4)], marker='o', label=a['l_nick'], color='#1D428A')
         ax.plot(["Q1", "Q2", "Q3", "Q4"], [sum(a['q_v'][:i+1]) for i in range(4)], marker='s', label=a['v_nick'], color='#CE1141')
@@ -189,7 +191,6 @@ if st.session_state.analisis:
     tiempo_trans = lx3.selectbox("Tiempo Transcurrido", ["Inicio", "Final Q1", "Medio Tiempo (Q2)", "Final Q3"])
     
     if live_l > 0 or live_v > 0:
-        # Factores de proyección según tiempo
         f_tiempos = {"Inicio": 4.0, "Final Q1": 4.0, "Medio Tiempo (Q2)": 2.0, "Final Q3": 1.33}
         factor = f_tiempos[tiempo_trans]
         p_final_total = (live_l + live_v) * factor
