@@ -29,7 +29,7 @@ ADVANCED_STATS = {
 
 STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "mitchell", "brunson", "wembanayama", "morant", "adebayo", "butler", "banchero", "sabonis", "fox"]
 
-# --- 3. EXTRACCIÓN Y UTILIDADES ---
+# --- 3. EXTRACCIÓN DE LESIONES ---
 @st.cache_data(ttl=600)
 def get_injuries():
     try:
@@ -48,7 +48,7 @@ def get_injuries():
 all_nba_teams = teams.get_teams()
 inj_db = get_injuries()
 
-# --- 4. SIDEBAR: FACTORES AVANZADOS ---
+# --- 4. SIDEBAR: FATIGA Y CONTEXTO ---
 with st.sidebar:
     st.header("⚙️ Configuración V7.3")
     
@@ -57,15 +57,14 @@ with st.sidebar:
     with col_f1:
         b2b_l = st.toggle("Local B2B")
         regreso_l = st.toggle("🔙 Casa B2B")
+        gira_l = st.toggle("🏠 Estancia Local")
     with col_f2:
         b2b_v = st.toggle("Visita B2B")
         viaje_v = st.toggle("✈️ Viaje Largo")
     
-    st.subheader("🎯 Contexto & Motivación")
+    st.subheader("🎯 Contexto de Liga")
     contexto = st.selectbox("Importancia del Partido", 
                             ["Regular Season", "Duelo Directo / Playoff Push", "Último de Gira (Agotamiento)"])
-    venganza = st.checkbox("🔥 Revenge Game (Venganza)")
-    humillacion = st.checkbox("🛡️ Blowout Recovery (Viene de paliza)")
 
     st.divider()
     for t_info in sorted(all_nba_teams, key=lambda x: x['nickname']):
@@ -85,96 +84,94 @@ with c1:
     l_name = st.selectbox("LOCAL", sorted([t['full_name'] for t in all_nba_teams]), index=0)
     l_nick = next(t for t in all_nba_teams if t['full_name'] == l_name)['nickname']
     s_l = ADVANCED_STATS.get(l_nick, [112, 114, 1.0, 3.5, 1.0])
-    m_l = st.checkbox(f"🚨 Baja Estrella ({l_nick})")
+    st.metric("Base Offense", s_l[0], f"+{s_l[3]} Home")
     
-    # NUEVA SECCIÓN: Profundidad Local
-    st.write("**Alineación Local:**")
+    st.markdown("---")
+    m_l = st.checkbox(f"🚨 Baja Estrella ({l_nick})")
     l_pg_out = st.checkbox("Falta Base (PG)", key="l_pg")
     l_c_out = st.checkbox("Falta Pívot (C)", key="l_c")
+    venganza_l = st.checkbox("🔥 Venganza (Local)", key="rev_l")
+    humillacion_l = st.checkbox("🛡️ Recuperación Paliza (Local)", key="blow_l")
 
 with c2:
     v_name = st.selectbox("VISITANTE", sorted([t['full_name'] for t in all_nba_teams]), index=1)
     v_nick = next(t for t in all_nba_teams if t['full_name'] == v_name)['nickname']
     s_v = ADVANCED_STATS.get(v_nick, [111, 115, 1.0, 3.5, 1.0])
-    m_v = st.checkbox(f"🚨 Baja Estrella ({v_nick})")
+    st.metric("Base Offense", s_v[0], "Visitor")
 
-    # NUEVA SECCIÓN: Profundidad Visita
-    st.write("**Alineación Visitante:**")
+    st.markdown("---")
+    m_v = st.checkbox(f"🚨 Baja Estrella ({v_nick})")
     v_pg_out = st.checkbox("Falta Base (PG)", key="v_pg")
     v_c_out = st.checkbox("Falta Pívot (C)", key="v_c")
+    venganza_v = st.checkbox("🔥 Venganza (Visita)", key="rev_v")
+    humillacion_v = st.checkbox("🛡️ Recuperación Paliza (Visita)", key="blow_v")
 
 # --- 6. MOTOR DE CÁLCULO ---
 if st.button("🚀 INICIAR ANÁLISIS"):
-    # 1. Lesiones & Estrellas
+    # Penalizaciones Lesiones
     red_l = min(0.15, (0.08 if m_l else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(l_nick.lower(), [])))
     red_v = min(0.15, (0.08 if m_v else 0) + sum(0.045 if any(s in p.lower() for s in STARS) else 0.015 for p in inj_db.get(v_nick.lower(), [])))
 
-    # 2. Factores de Posición (PG afecta ritmo, C afecta defensa del equipo)
+    # Factores Alineación
     ritmo_adj = (-0.02 if l_pg_out else 0) + (-0.02 if v_pg_out else 0)
-    def_adj_l = 0.025 if l_c_out else 0 # Si local no tiene C, visita anota más fácil
-    def_adj_v = 0.025 if v_c_out else 0 # Si visita no tiene C, local anota más fácil
+    def_adj_l = 0.025 if l_c_out else 0 
+    def_adj_v = 0.025 if v_c_out else 0 
 
-    # 3. Contexto & Motivación
-    bonus_revenge = 0.015 if venganza else 0.0
-    bonus_defensa = 0.02 if humillacion else 0.0 
-    fatiga_gira = -0.035 if "Gira" in contexto else 0.0
+    # NUEVA LÓGICA: Motivación para cada equipo
+    bonus_rev_l = 0.015 if venganza_l else 0.0
+    bonus_rev_v = 0.015 if venganza_v else 0.0
+    
+    # Recuperación de paliza aumenta la intensidad defensiva (reduce puntos del rival)
+    def_rev_l = 0.02 if humillacion_l else 0.0
+    def_rev_v = 0.02 if humillacion_v else 0.0
+
+    # Contexto & Fatiga
+    fat_gira_v = -0.035 if "Gira" in contexto else 0.0
     playoff_intensidad = 0.97 if "Playoff" in contexto else 1.0 
-
-    # 4. Fatiga
     f_l = 0.045 if regreso_l else (0.035 if b2b_l else 0.0)
     f_v = 0.045 if viaje_v else (0.035 if b2b_v else 0.0)
+    b_gira_l = 0.015 if gira_l else 0.0
     
-    altitud = 1.012 if l_nick in ["Nuggets", "Jazz"] else 1.0
+    alt_bonus = 1.012 if l_nick in ["Nuggets", "Jazz"] else 1.0
     ritmo_p = (((s_l[4] + s_v[4]) / 2) + ritmo_adj) * (0.98 if (b2b_l or b2b_v or regreso_l) else 1.0) * playoff_intensidad
     
-    # 5. Potencial Final (Con factores de posición aplicados a cada defensa)
-    pot_l = ((((s_l[0] * (1 - (red_l + f_l) + bonus_revenge)) * 0.7) + (s_v[1] * (0.33 + def_adj_v) if (b2b_v or viaje_v) else s_v[1] * (0.3 + def_adj_v))) * ritmo_p) * altitud
-    pot_v = ((((s_v[0] * (1 - (red_v + f_v + fatiga_gira))) * 0.7) + (s_l[1] * (0.33 + def_adj_l) if (b2b_l or regreso_l) else s_l[1] * (0.3 + def_adj_l))) * ritmo_p) * (1 - bonus_defensa)
+    # Potencial Final con todos los factores individuales
+    pot_l = (((s_l[0] * (1 - (red_l + f_l) + bonus_rev_l + b_gira_l)) * 0.7) + (s_v[1] * (0.33 + def_adj_v) if (b2b_v or viaje_v) else s_v[1] * (0.3 + def_adj_v))) * ritmo_p * alt_bonus * (1 - def_rev_v)
+    pot_v = (((s_v[0] * (1 - (red_v + f_v + fat_gira_v) + bonus_rev_v)) * 0.7) + (s_l[1] * (0.33 + def_adj_l) if (b2b_l or regreso_l) else s_l[1] * (0.3 + def_adj_l))) * ritmo_p * (1 - def_rev_l)
     
     res_l, res_v = round((pot_l + s_l[3]) * s_l[2], 1), round(pot_v * s_v[2], 1)
     
-    # 6. Progresión de Cuartos
+    # Cuartos
     dist = [0.26, 0.26, 0.24, 0.24]
-    q_l = [res_l * d for d in dist]
-    q_v = [res_v * d for d in dist]
+    q_l, q_v = [res_l * d for d in dist], [res_v * d for d in dist]
     
-    # Ajuste Clutch
-    clutch = False
     if abs(res_l - res_v) < 5:
-        clutch = True
         q_l[3] *= 0.95; q_v[3] *= 0.95
         res_l, res_v = round(sum(q_l), 1), round(sum(q_v), 1)
 
     # --- 7. RESULTADOS ---
     st.divider()
-    col_res1, col_res2 = st.columns([2, 1])
-    
-    with col_res1:
+    col_r1, col_r2 = st.columns([2, 1])
+    with col_r1:
         st.subheader(f"📊 PROYECCIÓN: {l_nick} {res_l} - {res_v} {v_nick}")
         m1, m2, m3 = st.columns(3)
-        m1.metric("Hándicap Sugerido", round(-(res_l - res_v), 1))
-        m2.metric("Total Puntos (O/U)", round(res_l + res_v, 1))
-        m3.metric("Ritmo Combinado", f"{round(ritmo_p, 2)}x")
+        m1.metric("Hándicap", round(-(res_l - res_v), 1))
+        m2.metric("Total Puntos", round(res_l + res_v, 1))
+        m3.metric("Ritmo", f"{round(ritmo_p, 2)}x")
         
-        # Gráfico
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ac_l = [sum(q_l[:i+1]) for i in range(4)]
-        ac_v = [sum(q_v[:i+1]) for i in range(4)]
-        ax.plot(["Q1", "Q2", "Q3", "Q4"], ac_l, marker='o', label=l_nick, color='green')
-        ax.plot(["Q1", "Q2", "Q3", "Q4"], ac_v, marker='s', label=v_nick, color='blue')
-        ax.set_title("Progresión de Puntos")
-        ax.legend()
-        st.pyplot(fig)
+        fig, ax = plt.subplots(figsize=(8, 3.5))
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], [sum(q_l[:i+1]) for i in range(4)], marker='o', label=l_nick, color='#1D428A')
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], [sum(q_v[:i+1]) for i in range(4)], marker='s', label=v_nick, color='#CE1141')
+        ax.set_title("Progresión Acumulada")
+        ax.legend(); st.pyplot(fig)
 
-    with col_res2:
-        st.info("💡 Factores Aplicados")
-        if l_pg_out or v_pg_out: st.write("🐢 Ritmo afectado por falta de Base")
-        if l_c_out: st.write(f"📂 Pintura de {l_nick} vulnerable")
-        if v_c_out: st.write(f"📂 Pintura de {v_nick} vulnerable")
-        if clutch: st.write("🔒 Ajuste Clutch Activo")
+    with col_r2:
+        st.info("💡 Análisis de Impacto")
+        if venganza_l: st.write(f"🔥 {l_nick} busca venganza.")
+        if venganza_v: st.write(f"🔥 {v_nick} busca venganza.")
+        if humillacion_l: st.write(f"🛡️ {l_nick} cerrará defensa tras paliza.")
+        if humillacion_v: st.write(f"🛡️ {v_nick} cerrará defensa tras paliza.")
         
-        st.table(pd.DataFrame({
-            "Q": ["Q1", "Q2", "Q3", "Q4", "Total"],
-            l_nick: [round(x,1) for x in q_l] + [res_l],
-            v_nick: [round(x,1) for x in q_v] + [res_v]
-        }))
+        st.table(pd.DataFrame({"Q": ["Q1","Q2","Q3","Q4","Total"], 
+                               l_nick: [round(x,1) for x in q_l] + [res_l], 
+                               v_nick: [round(x,1) for x in q_v] + [res_v]}))
