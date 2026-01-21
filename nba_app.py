@@ -31,7 +31,22 @@ ADVANCED_STATS = {
 
 STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "mitchell", "brunson", "wembanayama", "morant", "adebayo", "butler", "banchero", "sabonis", "fox"]
 
-# --- 3. FUNCIONES DE PERSISTENCIA Y SCRAPING ---
+# --- 3. FUNCIONES DE DATOS Y SCRAPING ---
+@st.cache_data(ttl=600)
+def get_injuries():
+    try:
+        url = "https://espndeportes.espn.com/basquetbol/nba/lesiones"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        injuries = {}
+        for title in soup.find_all('div', class_='Table__Title'):
+            team_raw = title.text.strip().lower()
+            team_key = "76ers" if "76ers" in team_raw else team_raw.split()[-1]
+            rows = title.find_parent('div', class_='ResponsiveTable').find_all('tr', class_='Table__TR')
+            injuries[team_key] = [r.find_all('td')[0].text.strip() for r in rows[1:]]
+        return injuries
+    except: return {}
+
 def save_to_history(partido, pred_total):
     try:
         conn = sqlite3.connect('nba_data.db')
@@ -40,121 +55,159 @@ def save_to_history(partido, pred_total):
                   (datetime.now().strftime("%Y-%m-%d %H:%M"), partido, pred_total, 0))
         conn.commit()
         conn.close()
-        st.success("✅ Predicción guardada en Historial.")
+        st.success("✅ Guardado en historial")
     except Exception as e:
-        st.error(f"Error al guardar: {e}")
+        st.error(f"Error DB: {e}")
 
-@st.cache_data(ttl=3600)
-def get_nba_lineups():
-    # Estructura para scraping de nba.com/players/todays-lineups
-    # Por ahora simulamos la conexión exitosa
-    return {"status": "Ready to scrape NBA.com"}
+all_nba_teams = teams.get_teams()
+inj_db = get_injuries()
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR: CONTROLES GLOBALES ---
 with st.sidebar:
-    st.header("⚙️ Configuración V7.5")
+    st.header("⚙️ Configuración Global")
     
+    # Botón Actualizador Web de Lesionados
+    if st.button("🔄 ACTUALIZAR WEB (LESIONES)"): 
+        st.cache_data.clear()
+        st.rerun()
+    
+    st.write("---")
     st.subheader("🔋 Fatiga & Giras")
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         b2b_l = st.toggle("Local B2B")
         regreso_l = st.toggle("🔙 Casa B2B")
+        gira_l = st.toggle("🏠 Estancia Local")
     with col_f2:
         b2b_v = st.toggle("Visita B2B")
         viaje_v = st.toggle("✈️ Viaje Largo")
     
-    st.subheader("🔥 Análisis de Rachas")
-    racha_l = st.select_slider("Racha Local", options=["Frío", "Neutral", "Caliente"], value="Neutral")
-    racha_v = st.select_slider("Racha Visita", options=["Frío", "Neutral", "Caliente"], value="Neutral")
-
-    st.subheader("🎯 Contexto")
-    contexto = st.selectbox("Importancia", ["Regular Season", "Playoff Push", "Trap Game Alerta"])
+    st.subheader("🔥 Rachas de Equipo")
+    racha_l = st.select_slider("Local", options=["Frío", "Neutral", "Caliente"], value="Neutral", key="r_l")
+    racha_v = st.select_slider("Visita", options=["Frío", "Neutral", "Caliente"], value="Neutral", key="r_v")
 
     st.divider()
-    if st.button("🔄 ACTUALIZAR ALINEACIONES (NBA.com)"):
-        st.cache_data.clear()
-        st.info("Buscando alineaciones en NBA.com...")
-        st.rerun()
+    for t_info in sorted(all_nba_teams, key=lambda x: x['nickname']):
+        nick = t_info['nickname'].lower()
+        bajas = inj_db.get(nick, [])
+        with st.expander(f"📍 {nick.upper()}"):
+            if bajas:
+                for p in bajas:
+                    st.write(f"{'🔴' if any(s in p.lower() for s in STARS) else '🟡'} {p}")
+            else: st.write("✅ Plantilla Completa")
 
-# --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V7.5: ELITE PREDICTOR")
+# --- 5. INTERFAZ: EQUIPOS E INDIVIDUALES ---
+st.title("🏀 NBA AI PRO V7.5: ANALYTICS")
 
 c1, c2 = st.columns(2)
 with c1:
     l_name = st.selectbox("LOCAL", sorted([t['full_name'] for t in all_nba_teams]), index=0)
     l_nick = next(t for t in all_nba_teams if t['full_name'] == l_name)['nickname']
     s_l = ADVANCED_STATS.get(l_nick, [112, 114, 1.0, 3.5, 1.0])
-    st.metric("Base Offense", s_l[0])
     
-    m_l = st.checkbox(f"🚨 Baja Estrella ({l_nick})")
+    st.markdown("### Ajustes " + l_nick)
+    m_l = st.checkbox(f"🚨 Baja Estrella", key="star_l")
     l_gtd = st.checkbox("⚠️ Jugador en Duda (GTD)", key="gtd_l")
     l_pg_out = st.checkbox("Falta Base (PG)", key="l_pg")
     l_c_out = st.checkbox("Falta Pívot (C)", key="l_c")
+    venganza_l = st.checkbox("🔥 Venganza", key="rev_l")
+    humillacion_l = st.checkbox("🛡️ Viene de Paliza", key="blow_l")
 
 with c2:
     v_name = st.selectbox("VISITANTE", sorted([t['full_name'] for t in all_nba_teams]), index=1)
     v_nick = next(t for t in all_nba_teams if t['full_name'] == v_name)['nickname']
     s_v = ADVANCED_STATS.get(v_nick, [111, 115, 1.0, 3.5, 1.0])
-    st.metric("Base Offense", s_v[0])
 
-    m_v = st.checkbox(f"🚨 Baja Estrella ({v_nick})")
+    st.markdown("### Ajustes " + v_nick)
+    m_v = st.checkbox(f"🚨 Baja Estrella", key="star_v")
     v_gtd = st.checkbox("⚠️ Jugador en Duda (GTD)", key="gtd_v")
     v_pg_out = st.checkbox("Falta Base (PG)", key="v_pg")
     v_c_out = st.checkbox("Falta Pívot (C)", key="v_c")
+    venganza_v = st.checkbox("🔥 Venganza", key="rev_v")
+    humillacion_v = st.checkbox("🛡️ Viene de Paliza", key="blow_v")
 
-# --- 6. MOTOR DE CÁLCULO V7.5 ---
+# --- 6. MOTOR DE CÁLCULO ---
+if 'analisis' not in st.session_state: st.session_state.analisis = None
+
 if st.button("🚀 INICIAR ANÁLISIS"):
-    # Penalizaciones (Ajustadas con GTD)
+    # Penalizaciones (Límite 22%)
     red_l = min(0.22, (0.08 if m_l else 0) + (0.025 if l_gtd else 0) + (0.02 if l_pg_out else 0))
     red_v = min(0.22, (0.08 if m_v else 0) + (0.025 if v_gtd else 0) + (0.02 if v_pg_out else 0))
 
-    # Rachas y Trap Game
-    bonus_racha_l = 0.02 if racha_l == "Caliente" else (-0.02 if racha_l == "Frío" else 0)
-    bonus_racha_v = 0.02 if racha_v == "Caliente" else (-0.02 if racha_v == "Frío" else 0)
-    trap_factor = 0.96 if contexto == "Trap Game Alerta" else 1.0
+    # Factores Alineación
+    ritmo_adj = (-0.02 if l_pg_out else 0) + (-0.02 if v_pg_out else 0)
+    def_adj_l = 0.025 if l_c_out else 0 
+    def_adj_v = 0.025 if v_c_out else 0 
 
+    # Motivación y Rachas
+    b_rev_l = 0.03 if venganza_l else 0.0
+    b_rev_v = 0.03 if venganza_v else 0.0
+    b_racha_l = 0.02 if racha_l == "Caliente" else (-0.02 if racha_l == "Frío" else 0)
+    b_racha_v = 0.02 if racha_v == "Caliente" else (-0.02 if racha_v == "Frío" else 0)
+    
+    # Intensidad Defensiva (tras paliza)
+    d_rev_l = 0.05 if humillacion_l else 0.0
+    d_rev_v = 0.05 if humillacion_v else 0.0
+
+    # Fatiga y Altitud
+    f_l = 0.045 if regreso_l else (0.035 if b2b_l else 0.0)
+    f_v = 0.045 if viaje_v else (0.035 if b2b_v else 0.0)
+    alt_bonus = 1.012 if l_nick in ["Nuggets", "Jazz"] else 1.0
+    ritmo_p = (((s_l[4] + s_v[4]) / 2) + ritmo_adj) * (0.98 if (b2b_l or b2b_v or regreso_l) else 1.0)
+    
     # Potencial
-    ritmo_p = ((s_l[4] + s_v[4]) / 2) * (0.98 if (b2b_l or b2b_v) else 1.0)
-    pot_l = (((s_l[0] * (1 - red_l + bonus_racha_l)) * 0.7) + (s_v[1] * 0.3)) * ritmo_p * trap_factor
-    pot_v = (((s_v[0] * (1 - red_v + bonus_racha_v)) * 0.7) + (s_l[1] * 0.3)) * ritmo_p
+    pot_l = (((s_l[0] * (1 - (red_l + f_l) + b_rev_l + b_racha_l)) * 0.7) + (s_v[1] * (0.33 + def_adj_v))) * ritmo_p * alt_bonus * (1 - d_rev_v)
+    pot_v = (((s_v[0] * (1 - (red_v + f_v) + b_rev_v + b_racha_v)) * 0.7) + (s_l[1] * (0.33 + def_adj_l))) * ritmo_p * (1 - d_rev_l)
     
-    res_l, res_v = round(pot_l + s_l[3], 1), round(pot_v, 1)
+    res_l, res_v = round((pot_l + s_l[3]) * s_l[2], 1), round(pot_v * s_v[2], 1)
     
-    # Probabilidad de Victoria (Win Probability)
-    # Basado en el Logit de la diferencia de puntos proyectada
+    # Win Probability
     diff = res_l - res_v
-    win_prob_l = 1 / (1 + (10 ** (-diff / 15))) # Sigmoide NBA estándar
-    win_prob_v = 1 - win_prob_l
+    wp_l = 1 / (1 + (10 ** (-diff / 15)))
 
     st.session_state.analisis = {
-        "res_l": res_l, "res_v": res_v, "wp_l": win_prob_l, "wp_v": win_prob_v,
-        "l_nick": l_nick, "v_nick": v_nick, "total": round(res_l + res_v, 1)
+        "res_l": res_l, "res_v": res_v, "l_nick": l_nick, "v_nick": v_nick,
+        "wp_l": wp_l, "total": round(res_l + res_v, 1), "ritmo": ritmo_p
     }
 
-# --- 7. RESULTADOS ---
+# --- 7. RESULTADOS Y GRÁFICO ---
 if st.session_state.analisis:
     a = st.session_state.analisis
     st.divider()
+    col_out1, col_out2 = st.columns([2, 1])
     
-    col_w1, col_w2 = st.columns(2)
-    with col_w1:
-        st.subheader(f"📊 PROYECCIÓN: {a['l_nick']} {a['res_l']} - {a['res_v']} {a['v_nick']}")
-        st.progress(a['wp_l'], text=f"Probabilidad Victoria {a['l_nick']}: {round(a['wp_l']*100, 1)}%")
-    
-    with col_w2:
-        st.metric("Total Puntos Proyectado", a['total'])
-        if st.button("💾 GUARDAR EN HISTORIAL"):
-            save_to_history(f"{a['l_nick']} vs {a['v_nick']}", a['total'])
+    with col_out1:
+        st.subheader(f"📊 {a['l_nick']} {a['res_l']} - {a['res_v']} {a['v_nick']}")
+        st.progress(a['wp_l'], text=f"Victoria {a['l_nick']}: {round(a['wp_l']*100, 1)}%")
+        
+        # Gráfico de tendencia
+        fig, ax = plt.subplots(figsize=(8, 3.5))
+        dists = [0.26, 0.52, 0.76, 1.0]
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], [a['res_l']*d for d in dists], marker='o', label=a['l_nick'], color='green')
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], [a['res_v']*d for d in dists], marker='s', label=a['v_nick'], color='blue')
+        ax.set_title("Progresión Proyectada")
+        ax.legend(); st.pyplot(fig)
 
-    # Monitor de Desviación (Preservado)
+    with col_out2:
+        if st.button("💾 GUARDAR"):
+            save_to_history(f"{a['l_nick']} vs {a['v_nick']}", a['total'])
+        
+        st.table(pd.DataFrame({
+            "Q": ["Q1","Q2","Q3","Q4"],
+            a['l_nick']: [round(a['res_l']*0.26,1), round(a['res_l']*0.26,1), round(a['res_l']*0.24,1), round(a['res_l']*0.24,1)],
+            a['v_nick']: [round(a['res_v']*0.26,1), round(a['res_v']*0.26,1), round(a['res_v']*0.24,1), round(a['res_v']*0.24,1)]
+        }))
+
+    # --- 8. MONITOR EN VIVO ---
     st.write("---")
-    st.subheader("⏱️ MONITOR DE DESVIACIÓN EN VIVO")
+    st.subheader("⏱️ MONITOR EN VIVO")
     lx1, lx2, lx3 = st.columns(3)
-    live_l = lx1.number_input(f"Puntos {a['l_nick']}", value=0)
-    live_v = lx2.number_input(f"Puntos {a['v_nick']}", value=0)
-    tiempo = lx3.selectbox("Tiempo", ["Q1", "Q2", "Q3"])
+    live_l = lx1.number_input(f"Puntos {a['l_nick']}", value=0, key="live_l")
+    live_v = lx2.number_input(f"Puntos {a['v_nick']}", value=0, key="live_v")
+    tiempo = lx3.selectbox("Tiempo", ["Q1", "Medio Tiempo (Q2)", "Final Q3"], key="t_live")
     
     if live_l > 0:
-        factor = 4 if tiempo == "Q1" else (2 if tiempo == "Q2" else 1.33)
-        tendencia = (live_l + live_v) * factor
-        st.write(f"Tendencia: {round(tendencia, 1)} pts | Desv: {round(tendencia - a['total'], 1)}")
+        f_m = {"Q1": 4, "Medio Tiempo (Q2)": 2, "Final Q3": 1.33}
+        tend = (live_l + live_v) * f_m[tiempo]
+        desv = round(tend - a['total'], 1)
+        st.write(f"**Tendencia:** {round(tend, 1)} pts | **Desviación:** {desv}")
