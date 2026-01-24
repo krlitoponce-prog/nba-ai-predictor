@@ -6,11 +6,12 @@ import sqlite3
 from datetime import datetime
 from bs4 import BeautifulSoup
 from nba_api.stats.static import teams
+from nba_api.stats.endpoints import scoreboardv2
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V7.5", layout="wide", page_icon="🚀")
+st.set_page_config(page_title="NBA AI ELITE V7.6", layout="wide", page_icon="🏀")
 
-# --- 2. BASE DE DATOS ADN NBA (Preservada) ---
+# --- 2. BASE DE DATOS ADN NBA ---
 ADVANCED_STATS = {
     "Celtics": [123.5, 110.5, 1.12, 4.8, 0.99], "Thunder": [119.5, 110.0, 1.09, 3.8, 1.02],
     "Nuggets": [118.0, 112.0, 1.18, 5.8, 0.97], "76ers": [116.5, 113.5, 1.02, 3.5, 0.98],
@@ -31,29 +32,8 @@ ADVANCED_STATS = {
 
 STARS = ["tatum", "brown", "curry", "james", "davis", "antetokounmpo", "lillard", "embiid", "doncic", "irving", "jokic", "gilgeous-alexander", "edwards", "haliburton", "mitchell", "brunson", "wembanayama", "morant", "adebayo", "butler", "banchero", "sabonis", "fox"]
 
-# --- 3. FUNCIONES DE SCRAPING PRO ---
-
+# --- 3. FUNCIONES DE SCRAPING Y AUTOMATIZACIÓN ---
 @st.cache_data(ttl=600)
-def scrape_nba_lineups():
-    """Scrapea alineaciones de hoy desde NBA.com"""
-    try:
-        url = "https://www.nba.com/players/todays-lineups"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # Lógica de búsqueda de contenedores de alineación
-        games_data = []
-        game_cards = soup.find_all('div', class_='LineupsGame_game__l_m6_') # Clase detectada en NBA.com
-        for card in game_cards:
-            teams_in_game = card.find_all('span', class_='TeamName_teamName__fB72A')
-            if len(teams_in_game) >= 2:
-                games_data.append(f"{teams_in_game[0].text} vs {teams_in_game[1].text}")
-        return games_data if games_data else ["No se detectaron partidos activos en NBA.com ahora mismo."]
-    except Exception as e:
-        return [f"Error de conexión con NBA.com: {e}"]
-
-@st.cache_data(ttl=3600)
 def get_espn_injuries():
     try:
         url = "https://espndeportes.espn.com/basquetbol/nba/lesiones"
@@ -68,6 +48,14 @@ def get_espn_injuries():
         return injuries
     except: return {}
 
+def auto_detect_star_out(team_nick, injuries_db):
+    """Detecta si hay una estrella lesionada en la base de datos de ESPN"""
+    bajas = injuries_db.get(team_nick.lower(), [])
+    for p in bajas:
+        if any(s in p.lower() for s in STARS):
+            return True
+    return False
+
 def save_to_history(partido, pred_total):
     try:
         conn = sqlite3.connect('nba_data.db')
@@ -77,26 +65,26 @@ def save_to_history(partido, pred_total):
         conn.commit()
         conn.close()
         st.success("✅ Guardado en historial")
-    except Exception as e:
-        st.error(f"Error DB: {e}")
+    except Exception as e: st.error(f"Error DB: {e}")
 
 all_nba_teams = teams.get_teams()
 inj_db = get_espn_injuries()
 
-# --- 4. SIDEBAR: CONTROLES Y SCRAPING ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
-    st.header("⚙️ Configuración V7.5")
+    st.header("⚙️ Configuración Global")
     
-    # BOTONES DE SCRAPING
     col_btn1, col_btn2 = st.columns(2)
-    if col_btn1.button("🔄 LESIONES"):
+    if col_btn1.button("🔄 LESIONES"): 
         st.cache_data.clear()
         st.rerun()
     
-    if col_btn2.button("🏀 ALINEACIONES"):
-        lineups = scrape_nba_lineups()
-        for g in lineups:
-            st.caption(g)
+    if col_btn2.button("🏀 PARTIDOS"):
+        try:
+            sb = scoreboardv2.ScoreboardV2()
+            games = sb.get_dict()['resultSets'][0]['rowSet']
+            for g in games: st.caption(f"ID: {g[2]} | {g[4]}")
+        except: st.error("Error API NBA")
 
     st.write("---")
     st.subheader("🔋 Fatiga & Giras")
@@ -109,9 +97,9 @@ with st.sidebar:
         b2b_v = st.toggle("Visita B2B")
         viaje_v = st.toggle("✈️ Viaje Largo")
     
-    st.subheader("🔥 Rachas de Equipo")
-    racha_l = st.select_slider("Local", options=["Frío", "Neutral", "Caliente"], value="Neutral", key="r_l")
-    racha_v = st.select_slider("Visita", options=["Frío", "Neutral", "Caliente"], value="Neutral", key="r_v")
+    st.subheader("🔥 Rachas")
+    r_l = st.select_slider("Local", ["Frío", "Neutral", "Caliente"], "Neutral", key="sl_l")
+    r_v = st.select_slider("Visita", ["Frío", "Neutral", "Caliente"], "Neutral", key="sl_v")
 
     st.divider()
     for t_info in sorted(all_nba_teams, key=lambda x: x['nickname']):
@@ -119,12 +107,11 @@ with st.sidebar:
         bajas = inj_db.get(nick, [])
         with st.expander(f"📍 {nick.upper()}"):
             if bajas:
-                for p in bajas:
-                    st.write(f"{'🔴' if any(s in p.lower() for s in STARS) else '🟡'} {p}")
-            else: st.write("✅ Plantilla Completa")
+                for p in bajas: st.write(f"{'🔴' if any(s in p.lower() for s in STARS) else '🟡'} {p}")
+            else: st.write("✅ OK")
 
-# --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V7.5: ANALYTICS & LIVE SCRAPE")
+# --- 5. INTERFAZ: EQUIPOS ---
+st.title("🏀 NBA AI PRO V7.6: AUTO-STAR DETECTOR")
 
 c1, c2 = st.columns(2)
 with c1:
@@ -133,8 +120,9 @@ with c1:
     s_l = ADVANCED_STATS.get(l_nick, [112, 114, 1.0, 3.5, 1.0])
     
     st.markdown(f"### Ajustes {l_nick}")
-    m_l = st.checkbox("🚨 Baja Estrella", key="star_l")
-    l_gtd = st.checkbox("⚠️ Jugador en Duda (GTD)", key="gtd_l")
+    auto_l = auto_detect_star_out(l_nick, inj_db)
+    m_l = st.checkbox("🚨 Baja Estrella (Forzar)", value=auto_l, key="star_l")
+    if auto_l: st.caption("✨ *Estrella detectada en lista de lesionados automáticamente*")
     l_pg_out = st.checkbox("Falta Base (PG)", key="l_pg")
     l_c_out = st.checkbox("Falta Pívot (C)", key="l_c")
     venganza_l = st.checkbox("🔥 Venganza", key="rev_l")
@@ -146,45 +134,40 @@ with c2:
     s_v = ADVANCED_STATS.get(v_nick, [111, 115, 1.0, 3.5, 1.0])
 
     st.markdown(f"### Ajustes {v_nick}")
-    m_v = st.checkbox("🚨 Baja Estrella", key="star_v")
-    v_gtd = st.checkbox("⚠️ Jugador en Duda (GTD)", key="gtd_v")
+    auto_v = auto_detect_star_out(v_nick, inj_db)
+    m_v = st.checkbox("🚨 Baja Estrella (Forzar)", value=auto_v, key="star_v")
+    if auto_v: st.caption("✨ *Estrella detectada en lista de lesionados automáticamente*")
     v_pg_out = st.checkbox("Falta Base (PG)", key="v_pg")
     v_c_out = st.checkbox("Falta Pívot (C)", key="v_c")
     venganza_v = st.checkbox("🔥 Venganza", key="rev_v")
     humillacion_v = st.checkbox("🛡️ Viene de Paliza", key="blow_v")
 
-# --- 6. MOTOR DE CÁLCULO V7.5 ---
+# --- 6. MOTOR DE CÁLCULO ---
 if 'analisis' not in st.session_state: st.session_state.analisis = None
 
 if st.button("🚀 INICIAR ANÁLISIS"):
     # Penalizaciones (Límite 22%)
-    red_l = min(0.22, (0.08 if m_l else 0) + (0.025 if l_gtd else 0) + (0.02 if l_pg_out else 0))
-    red_v = min(0.22, (0.08 if m_v else 0) + (0.025 if v_gtd else 0) + (0.02 if v_pg_out else 0))
+    red_l = min(0.22, (0.08 if m_l else 0) + (0.02 if l_pg_out else 0))
+    red_v = min(0.22, (0.08 if m_v else 0) + (0.02 if v_pg_out else 0))
 
     ritmo_adj = (-0.02 if l_pg_out else 0) + (-0.02 if v_pg_out else 0)
-    def_adj_l = 0.025 if l_c_out else 0 
-    def_adj_v = 0.025 if v_c_out else 0 
-
-    b_rev_l, b_rev_v = (0.03 if venganza_l else 0.0), (0.03 if venganza_v else 0.0)
-    b_racha_l = 0.02 if racha_l == "Caliente" else (-0.02 if racha_l == "Frío" else 0)
-    b_racha_v = 0.02 if racha_v == "Caliente" else (-0.02 if racha_v == "Frío" else 0)
-    d_rev_l, d_rev_v = (0.05 if humillacion_l else 0.0), (0.05 if humillacion_v else 0.0)
+    def_adj_l, def_adj_v = (0.025 if l_c_out else 0), (0.025 if v_c_out else 0)
+    
+    b_rev_l, b_rev_v = (0.03 if venganza_l else 0), (0.03 if venganza_v else 0)
+    b_racha_l = 0.02 if r_l == "Caliente" else (-0.02 if r_l == "Frío" else 0)
+    b_racha_v = 0.02 if r_v == "Caliente" else (-0.02 if r_v == "Frío" else 0)
+    d_rev_l, d_rev_v = (0.05 if humillacion_l else 0), (0.05 if humillacion_v else 0)
 
     f_l = 0.045 if regreso_l else (0.035 if b2b_l else 0.0)
     f_v = 0.045 if viaje_v else (0.035 if b2b_v else 0.0)
-    
     alt_bonus = 1.012 if l_nick in ["Nuggets", "Jazz"] else 1.0
     ritmo_p = (((s_l[4] + s_v[4]) / 2) + ritmo_adj) * (0.98 if (b2b_l or b2b_v or regreso_l) else 1.0)
     
-    # Proyección Final
     pot_l = (((s_l[0] * (1 - (red_l + f_l) + b_rev_l + b_racha_l)) * 0.7) + (s_v[1] * (0.33 + def_adj_v))) * ritmo_p * alt_bonus * (1 - d_rev_v)
     pot_v = (((s_v[0] * (1 - (red_v + f_v) + b_rev_v + b_racha_v)) * 0.7) + (s_l[1] * (0.33 + def_adj_l))) * ritmo_p * (1 - d_rev_l)
     
     res_l, res_v = round((pot_l + s_l[3]) * s_l[2], 1), round(pot_v * s_v[2], 1)
-    
-    # Win Probability
-    diff = res_l - res_v
-    wp_l = 1 / (1 + (10 ** (-diff / 15)))
+    wp_l = 1 / (1 + (10 ** (-(res_l - res_v) / 15)))
 
     st.session_state.analisis = {
         "res_l": res_l, "res_v": res_v, "l_nick": l_nick, "v_nick": v_nick,
@@ -221,7 +204,7 @@ if st.session_state.analisis:
 
     # --- 8. MONITOR EN VIVO ---
     st.write("---")
-    st.subheader("⏱️ MONITOR EN VIVO")
+    st.subheader("⏱️ MONITOR DE DESVIACIÓN EN VIVO")
     lx1, lx2, lx3 = st.columns(3)
     live_l = lx1.number_input(f"Puntos {a['l_nick']}", value=0, key="live_l")
     live_v = lx2.number_input(f"Puntos {a['v_nick']}", value=0, key="live_v")
@@ -230,5 +213,4 @@ if st.session_state.analisis:
     if live_l > 0:
         f_m = {"Q1": 4, "Medio Tiempo (Q2)": 2, "Final Q3": 1.33}
         tend = (live_l + live_v) * f_m[tiempo]
-        desv = round(tend - a['total'], 1)
-        st.write(f"**Tendencia:** {round(tend, 1)} pts | **Desviación:** {desv}")
+        st.write(f"**Tendencia:** {round(tend, 1)} pts | **Desviación:** {round(tend - a['total'], 1)}")
