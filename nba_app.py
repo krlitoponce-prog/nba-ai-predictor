@@ -6,16 +6,16 @@ import sqlite3
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-# Intentamos importar librerías de NBA, si fallan usamos el respaldo
+# Manejo de importación segura para nba_api
 try:
     from nba_api.stats.static import teams
-    from nba_api.stats.endpoints import scoreboardv2, leaguedashplayerstats
+    from nba_api.stats.endpoints import leaguedashplayerstats
     NBA_API_AVAILABLE = True
-except:
+except ImportError:
     NBA_API_AVAILABLE = False
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V7.9", layout="wide", page_icon="🚀")
+st.set_page_config(page_title="NBA AI ELITE V7.9", layout="wide", page_icon="🏀")
 
 # --- 2. BASE DE DATOS ADN NBA ---
 ADVANCED_STATS = {
@@ -36,7 +36,6 @@ ADVANCED_STATS = {
     "Wizards": [111.8, 122.5, 0.91, 3.0, 1.04], "Trail Blazers": [110.0, 117.5, 0.93, 3.8, 0.98]
 }
 
-# Diccionario de Estrellas con sus métricas base (PER, TS%, GameScore) para automatización
 STARS_METRICS = {
     "tatum": [22.5, 60, 18.5], "jokic": [31.5, 65, 25.0], "doncic": [28.1, 62, 23.5], 
     "james": [23.0, 61, 19.0], "curry": [24.5, 63, 20.0], "embiid": [30.2, 64, 24.5],
@@ -60,23 +59,14 @@ def get_espn_injuries():
     except: return {}
 
 def auto_analyze_injuries(team_nick, injuries_db):
-    """Retorna penalización basada en quién falta exactamente"""
     bajas = injuries_db.get(team_nick.lower(), [])
-    impacto_total = 0.0
-    gtd_detectado = False
-    
+    impacto_total, gtd_detectado = 0.0, False
     for p in bajas:
-        nombre_low = p.lower()
-        # Verificar si es estrella y obtener sus métricas
+        p_low = p.lower()
         for s, metrics in STARS_METRICS.items():
-            if s in nombre_low:
-                # Fórmula: (PER/200 + GS/200) -> Aprox 10-14% por súper estrella
-                impacto_total += (metrics[0]/200) + (metrics[2]/200)
-        
-        if "cuestionable" in nombre_low or "duda" in nombre_low:
-            gtd_detectado = True
-            
-    return min(0.25, impacto_total), gtd_detectado
+            if s in p_low: impacto_total += (metrics[0]/200) + (metrics[2]/200)
+        if any(x in p_low for x in ["cuestionable", "duda", "questionable"]): gtd_detectado = True
+    return min(0.22, impacto_total), gtd_detectado
 
 def save_to_history(partido, pred_total):
     try:
@@ -84,19 +74,17 @@ def save_to_history(partido, pred_total):
         c = conn.cursor()
         c.execute("INSERT INTO historial (fecha, partido, pred_total, real_total) VALUES (?, ?, ?, ?)",
                   (datetime.now().strftime("%Y-%m-%d %H:%M"), partido, pred_total, 0))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
     except: pass
 
 def get_history():
     try:
         conn = sqlite3.connect('nba_data.db')
         df = pd.read_sql_query("SELECT fecha, partido, pred_total FROM historial ORDER BY id DESC LIMIT 5", conn)
-        conn.close()
-        return df
+        conn.close(); return df
     except: return pd.DataFrame(columns=["Fecha", "Partido", "Pred"])
 
-# --- 4. SIDEBAR Y LIMPIEZA ---
+# --- 4. SIDEBAR ---
 inj_db = get_espn_injuries()
 try:
     all_nba_teams = teams.get_teams()
@@ -105,40 +93,37 @@ except:
 
 with st.sidebar:
     st.header("⚙️ SISTEMA V7.9")
-    
-    if st.button("🔄 LIMPIAR CACHÉ Y BUSCAR DATOS FRESCOS"):
-        st.cache_data.clear()
-        st.success("Caché limpio. Buscando nuevas alineaciones...")
-        st.rerun()
+    if st.button("🔄 LIMPIAR CACHÉ Y DATOS FRESCOS"):
+        st.cache_data.clear(); st.success("Datos actualizados"); st.rerun()
     
     st.write("---")
     st.subheader("🔋 Fatiga y Giras")
     b2b_l = st.toggle("Local B2B")
     reg_l = st.toggle("🔙 Regreso a Casa")
+    b2b_v = st.toggle("Visita B2B")
     viaje_v = st.toggle("✈️ Viaje Largo (Visita)")
     
-    st.subheader("🔥 Rachas")
-    r_l = st.select_slider("Racha Local", ["Frío", "Neutral", "Caliente"], "Neutral")
-    r_v = st.select_slider("Racha Visita", ["Frío", "Neutral", "Caliente"], "Neutral")
-
-    st.write("---")
-    st.subheader("📜 HISTORIAL LOCAL PERMANENTE")
+    st.subheader("📜 HISTORIAL RECIENTE")
     st.dataframe(get_history(), use_container_width=True)
 
+    st.subheader("📍 REPORTE DE LESIONES")
+    for t_nick in sorted(ADVANCED_STATS.keys()):
+        bajas = inj_db.get(t_nick.lower(), [])
+        if bajas:
+            with st.expander(f"📍 {t_nick.upper()}"):
+                for p in bajas: st.write(f"{'🔴' if any(s in p.lower() for s in STARS_METRICS) else '🟡'} {p}")
+
 # --- 5. INTERFAZ EQUIPOS ---
-st.title("🏀 NBA AI PRO V7.9: AUTOMATIC PROPORTIONAL IMPACT")
+st.title("🏀 NBA AI PRO V7.9: AUTOMATIC IMPACT")
 
 c1, c2 = st.columns(2)
 with c1:
     l_name = st.selectbox("LOCAL", sorted([t['full_name'] for t in all_nba_teams]), index=0)
-    l_nick = next(t for t in all_nba_teams if t['full_name'] == l_name)['nickname']
+    l_nick = next((t['nickname'] for t in all_nba_teams if t['full_name'] == l_name), l_name)
     s_l = ADVANCED_STATS.get(l_nick, [115, 115, 1.0, 3.5, 1.0])
-    
     st.markdown(f"### Ajustes {l_nick}")
     penal_auto_l, gtd_auto_l = auto_analyze_injuries(l_nick, inj_db)
-    
-    # Checkboxes manuales que se activan solos si la IA detecta algo
-    m_l = st.checkbox("🚨 Baja Estrella (Auto-Detectada)", value=(penal_auto_l > 0), key="ml")
+    m_l = st.checkbox("🚨 Baja Estrella (Auto)", value=(penal_auto_l > 0), key="ml")
     l_gtd = st.checkbox("⚠️ En Duda (GTD)", value=gtd_auto_l, key="gl")
     l_pg = st.checkbox("Falta Base (PG)", key="lpg")
     l_c = st.checkbox("Falta Pívot (C)", key="lc")
@@ -146,39 +131,32 @@ with c1:
 
 with c2:
     v_name = st.selectbox("VISITANTE", sorted([t['full_name'] for t in all_nba_teams]), index=1)
-    v_nick = next(t for t in all_nba_teams if t['full_name'] == v_name)['nickname']
+    v_nick = next((t['nickname'] for t in all_nba_teams if t['full_name'] == v_name), v_name)
     s_v = ADVANCED_STATS.get(v_nick, [112, 115, 1.0, 3.5, 1.0])
-
     st.markdown(f"### Ajustes {v_nick}")
     penal_auto_v, gtd_auto_v = auto_analyze_injuries(v_nick, inj_db)
-    
-    m_v = st.checkbox("🚨 Baja Estrella (Auto-Detectada)", value=(penal_auto_v > 0), key="mv")
+    m_v = st.checkbox("🚨 Baja Estrella (Auto)", value=(penal_auto_v > 0), key="mv")
     v_gtd = st.checkbox("⚠️ En Duda (GTD)", value=gtd_auto_v, key="gv")
     v_pg = st.checkbox("Falta Base (PG)", key="vpg")
     v_c = st.checkbox("Falta Pívot (C)", key="vc")
     venganza_v = st.checkbox("🔥 Venganza", key="vv")
 
-# --- 6. CÁLCULO ---
+# --- 6. CÁLCULO (Todo encapsulado aquí para evitar NameError) ---
 if st.button("🚀 ANALIZAR PARTIDO"):
-    # Aplicar Impacto Proporcional
-    red_l = penal_auto_l if m_l else 0
-    red_v = penal_auto_v if m_v else 0
+    # Penalizaciones proporcionales
+    red_l = (penal_auto_l if m_l else 0) + (0.025 if l_gtd else 0) + (0.02 if l_pg else 0)
+    red_v = (penal_auto_v if m_v else 0) + (0.025 if v_gtd else 0) + (0.02 if v_pg else 0)
     
-    # Ajustes extra
-    red_l += (0.025 if l_gtd else 0) + (0.02 if l_pg else 0)
-    red_v += (0.025 if v_gtd else 0) + (0.02 if v_pg else 0)
-    
+    ritmo_adj = (-0.02 if l_pg else 0) + (-0.02 if v_pg else 0)
     f_l = 0.045 if reg_l else (0.035 if b2b_l else 0)
-    f_v = 0.045 if viaje_v else 0
+    f_v = 0.045 if viaje_v else (0.035 if b2b_v else 0)
     
-    ritmo_p = ((s_l[4] + s_v[4])/2) * (0.98 if (b2b_l or b2b_v) else 1.0)
+    ritmo_p = ((s_l[4] + s_v[4])/2 + ritmo_adj) * (0.98 if (b2b_l or b2b_v or reg_l) else 1.0)
     
-    pot_l = (((s_l[0] * (1 - red_l - f_l)) * 0.7) + (s_v[1] * (0.33 if l_c else 0.3))) * ritmo_p
-    pot_v = (((s_v[0] * (1 - red_v - f_v)) * 0.7) + (s_l[1] * (0.33 if v_c else 0.3))) * ritmo_p
+    pot_l = (((s_l[0] * (1 - red_l - f_l + (0.03 if venganza_l else 0))) * 0.7) + (s_v[1] * (0.33 if l_c else 0.3))) * ritmo_p
+    pot_v = (((s_v[0] * (1 - red_v - f_v + (0.03 if venganza_v else 0))) * 0.7) + (s_l[1] * (0.33 if v_c else 0.3))) * ritmo_p
     
     res_l, res_v = round(pot_l + s_l[3], 1), round(pot_v, 1)
-    
-    # Win Probability
     diff = res_l - res_v
     wp_l = 1 / (1 + (10 ** (-diff / 15)))
     
@@ -190,27 +168,24 @@ if 'analisis' in st.session_state:
     res = st.session_state.analisis
     st.divider()
     col1, col2 = st.columns([2,1])
-    
     with col1:
         st.header(f"📊 {res['l']} {res['rl']} - {res['rv']} {res['v']}")
         st.progress(res['wp'], text=f"Probabilidad Victoria {res['l']}: {round(res['wp']*100,1)}%")
         
-        # Tabla de cuartos aproximados
-        dist = [0.26, 0.26, 0.24, 0.24]
-        st.table(pd.DataFrame({
-            "Equipo": [res['l'], res['v']],
-            "Q1": [round(res['rl']*dist[0],1), round(res['rv']*dist[0],1)],
-            "Q2": [round(res['rl']*dist[1],1), round(res['rv']*dist[1],1)],
-            "Q3": [round(res['rl']*dist[2],1), round(res['rv']*dist[2],1)],
-            "Q4": [round(res['rl']*dist[3],1), round(res['rv']*dist[3],1)],
-            "TOTAL": [res['rl'], res['rv']]
-        }))
+        # Gráfico dinámico
+        fig, ax = plt.subplots(figsize=(8, 3.5))
+        dists = [0.26, 0.52, 0.76, 1.0]
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], [res['rl']*d for d in dists], marker='o', label=res['l'], color='green')
+        ax.plot(["Q1", "Q2", "Q3", "Q4"], [res['rv']*d for d in dists], marker='s', label=res['v'], color='blue')
+        ax.set_title("Progresión Acumulada"); ax.legend(); st.pyplot(fig)
 
     with col2:
         st.metric("Total Proyectado", res['total'])
         st.subheader("⏱️ MONITOR LIVE")
         live_l = st.number_input(f"Live {res['l']}", value=0)
         live_v = st.number_input(f"Live {res['v']}", value=0)
+        tiempo = st.selectbox("Tiempo", ["Q1", "Q2 (MT)", "Q3"])
         if live_l > 0:
-            t_actual = (live_l + live_v) * 2 # Asumiendo medio tiempo
-            st.write(f"Tendencia: {t_actual} | Desv: {round(t_actual - res['total'],1)}")
+            f_m = {"Q1": 4, "Q2 (MT)": 2, "Q3": 1.33}
+            t_act = (live_l + live_v) * f_m[tiempo]
+            st.write(f"Tendencia: {round(t_act, 1)} | Desv: {round(t_act - res['total'],1)}")
