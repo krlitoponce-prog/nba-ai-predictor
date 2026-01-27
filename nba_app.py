@@ -6,9 +6,9 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI ELITE V8.2", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI ELITE V8.3", layout="wide", page_icon="🏀")
 
-# --- 2. BASE DE DATOS ADN NBA ---
+# --- 2. BASE DE DATOS ADN NBA (Estadísticas Base) ---
 ADVANCED_STATS = {
     "Celtics": [123.5, 110.5, 1.12, 4.8, 0.99], "Thunder": [119.5, 110.0, 1.09, 3.8, 1.02],
     "Nuggets": [118.0, 112.0, 1.18, 5.8, 0.97], "76ers": [116.5, 113.5, 1.02, 3.5, 0.98],
@@ -27,12 +27,19 @@ ADVANCED_STATS = {
     "Wizards": [111.8, 122.5, 0.91, 3.0, 1.04], "Trail Blazers": [110.0, 117.5, 0.93, 3.8, 0.98]
 }
 
+# --- DICCIONARIO GLOBAL DE ESTRELLAS (Métricas PER, GS) ---
 STARS_DB = {
-    "tatum": [22.5, 18.5], "jokic": [31.5, 25.0], "doncic": [28.1, 23.5], "james": [23.0, 19.0], 
-    "curry": [24.5, 20.0], "embiid": [30.2, 24.5], "antetokounmpo": [29.8, 24.0], "davis": [25.0, 20.5]
+    "tatum": [22.5, 18.5], "brown": [19.0, 16.0], "jokic": [31.5, 25.0], "doncic": [28.1, 23.5], 
+    "james": [23.0, 19.0], "curry": [24.5, 20.0], "embiid": [30.2, 24.5], "antetokounmpo": [29.8, 24.0],
+    "davis": [25.0, 20.5], "durant": [24.0, 21.0], "booker": [21.5, 18.5], "leonard": [23.0, 19.5],
+    "gilgeous": [27.5, 22.0], "lillard": [21.0, 18.0], "brunson": [21.5, 17.5], "edwards": [20.5, 16.5],
+    "haliburton": [23.0, 19.0], "mitchell": [21.5, 18.0], "morant": [22.5, 18.0], "adebayo": [20.0, 17.0],
+    "butler": [21.5, 18.0], "banchero": [19.0, 15.5], "sabonis": [22.0, 19.0], "fox": [21.0, 17.5],
+    "wembanayama": [22.0, 18.0], "williamson": [22.0, 17.5], "markkanen": [20.5, 17.0], "maxey": [21.0, 17.5],
+    "george": [20.0, 16.5], "siakam": [19.5, 16.0], "derozan": [20.0, 17.0], "irving": [21.5, 18.0]
 }
 
-# --- 3. FUNCIONES AUXILIARES ---
+# --- 3. FUNCIONES DE DATOS ---
 @st.cache_data(ttl=600)
 def get_espn_injuries():
     try:
@@ -48,13 +55,15 @@ def get_espn_injuries():
     except: return {}
 
 def perform_auto_detection(team_nick, injuries_db):
-    bajas = injuries_db.get(team_nick.lower(), [])
+    bajas_equipo = injuries_db.get(team_nick.lower(), [])
     penalizacion = 0.0
-    for player in bajas:
+    detected_stars = []
+    for player in bajas_equipo:
         for star, stats in STARS_DB.items():
             if star in player.lower():
                 penalizacion += (stats[0]/200) + (stats[1]/200)
-    return min(0.22, penalizacion)
+                detected_stars.append(player)
+    return min(0.25, penalizacion), detected_stars
 
 def get_history():
     try:
@@ -66,33 +75,39 @@ def get_history():
 # --- 4. SIDEBAR ---
 inj_db = get_espn_injuries()
 with st.sidebar:
-    st.header("⚙️ SISTEMA V8.2")
+    st.header("⚙️ SISTEMA V8.3")
     if st.button("🔄 ACTUALIZAR DATOS FRESCOS"):
         st.cache_data.clear(); st.rerun()
     
     st.write("---")
-    st.subheader("💰 INTEGRACIÓN DE APUESTAS")
-    linea_ou = st.number_input("Línea Over/Under Casino", value=220.0, step=0.5)
-    linea_spread = st.number_input("Línea Hándicap (Local)", value=0.0, step=0.5)
+    st.subheader("💰 LÍNEAS CASINO")
+    linea_ou = st.number_input("Over/Under", value=220.0, step=0.5)
+    linea_spread = st.number_input("Hándicap Local", value=0.0, step=0.5)
 
     st.write("---")
-    st.subheader("🔋 Control de Fatiga")
-    b2b_l = st.toggle("Local B2B", key="b2bl")
-    regreso_l = st.toggle("🔙 Regreso a Casa", key="regl")
-    b2b_v = st.toggle("Visita B2B", key="b2bv")
-    viaje_v = st.toggle("✈️ Viaje Largo / Gira", key="viajev")
+    st.subheader("🔋 Fatiga")
+    b2b_l, reg_l = st.toggle("Local B2B", key="b2bl"), st.toggle("🔙 Regreso Casa", key="regl")
+    b2b_v, viaje_v = st.toggle("Visita B2B", key="b2bv"), st.toggle("✈️ Viaje Largo", key="viajev")
     
     st.write("---")
-    st.subheader("📜 HISTORIAL RECIENTE")
-    st.dataframe(get_history(), use_container_width=True)
+    st.subheader("📜 ÚLTIMOS GUARDADOS")
+    st.table(get_history())
 
 # --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V8.2: EDGE DETECTOR")
+st.title("🏀 NBA AI PRO V8.3: ADVANCED ANALYTICS")
 c1, c2 = st.columns(2)
 
 with c1:
     l_nick = st.selectbox("LOCAL", sorted(ADVANCED_STATS.keys()), index=5)
     st.markdown(f"### Ajustes {l_nick}")
+    
+    # REPORTE DE BAJAS VISIBLE DEBAJO DE CADA EQUIPO
+    penal_auto_l, estrellas_l = perform_auto_detection(l_nick, inj_db)
+    if estrellas_l:
+        st.error(f"⚠️ BAJAS CLAVE DETECTADAS: {', '.join(estrellas_l)}")
+    else:
+        st.success("✅ Estrellas disponibles")
+        
     l_pg = st.checkbox("Falta Base (PG)", key="lpg")
     l_c = st.checkbox("Falta Pívot (C)", key="lc")
     venganza_l = st.checkbox("🔥 Venganza", key="vl")
@@ -101,6 +116,14 @@ with c1:
 with c2:
     v_nick = st.selectbox("VISITANTE", sorted(ADVANCED_STATS.keys()), index=23)
     st.markdown(f"### Ajustes {v_nick}")
+    
+    # REPORTE DE BAJAS VISIBLE DEBAJO DE CADA EQUIPO
+    penal_auto_v, estrellas_v = perform_auto_detection(v_nick, inj_db)
+    if estrellas_v:
+        st.error(f"⚠️ BAJAS CLAVE DETECTADAS: {', '.join(estrellas_v)}")
+    else:
+        st.success("✅ Estrellas disponibles")
+
     v_pg = st.checkbox("Falta Base (PG)", key="vpg")
     v_c = st.checkbox("Falta Pívot (C)", key="vc")
     venganza_v = st.checkbox("🔥 Venganza", key="vv")
@@ -108,24 +131,15 @@ with c2:
 
 # --- 6. MOTOR DE CÁLCULO ---
 if st.button("🚀 INICIAR ANÁLISIS"):
-    # Detección Automática
-    red_auto_l = perform_auto_detection(l_nick, inj_db)
-    red_auto_v = perform_auto_detection(v_nick, inj_db)
-    
-    # 🏔️ Bono Altitud Automático
     alt_bonus = 1.015 if l_nick in ["Nuggets", "Jazz"] else 1.0
-    if alt_bonus > 1: st.toast(f"🏔️ Bono de Altitud aplicado a {l_nick}")
-
-    red_l = red_auto_l + (0.02 if l_pg else 0)
-    red_v = red_auto_v + (0.02 if v_pg else 0)
-    
     s_l, s_v = ADVANCED_STATS[l_nick], ADVANCED_STATS[v_nick]
     
-    # ⚔️ Alerta Duelo de Estilos
-    diff_ritmo = abs(s_l[4] - s_v[4])
-    if diff_ritmo > 0.06: st.warning("⚠️ ALERTA: Conflicto de Ritmos (Uno corre, otro frena). Cautela con el total.")
+    if abs(s_l[4] - s_v[4]) > 0.06: st.warning("⚠️ ALERTA: Conflicto de Ritmos (Over/Under Inestable).")
 
-    f_l = 0.045 if regreso_l else (0.035 if b2b_l else 0)
+    red_l = penal_auto_l + (0.02 if l_pg else 0)
+    red_v = penal_auto_v + (0.02 if v_pg else 0)
+
+    f_l = 0.045 if reg_l else (0.035 if b2b_l else 0)
     f_v = 0.045 if viaje_v else (0.035 if b2b_v else 0)
     
     ritmo_p = ((s_l[4] + s_v[4])/2) * (0.98 if (b2b_l or b2b_v) else 1.0)
@@ -133,63 +147,29 @@ if st.button("🚀 INICIAR ANÁLISIS"):
     pot_l = (((s_l[0] * (1 - red_l - f_l + (0.03 if venganza_l else 0))) * 0.7) + (s_v[1] * (0.33 if l_c else 0.3))) * ritmo_p * alt_bonus
     pot_v = (((s_v[0] * (1 - red_v - f_v + (0.03 if venganza_v else 0))) * 0.7) + (s_l[1] * (0.33 if v_c else 0.3))) * ritmo_p
     
-    res_l = round(pot_l + s_l[3] * (0.95 if paliza_v else 1.0), 1)
-    res_v = round(pot_v * (0.95 if paliza_l else 1.0), 1)
+    res_l, res_v = round(pot_l + s_l[3] * (0.95 if paliza_v else 1.0), 1), round(pot_v * (0.95 if paliza_l else 1.0), 1)
     
-    # 📊 Win Probability
-    diff_final = res_l - res_v
-    wp_l = 1 / (1 + (10 ** (-diff_final / 15)))
+    wp_l = 1 / (1 + (10 ** (-(res_l - res_v) / 15)))
     
-    st.session_state.analisis = {
-        "l": l_nick, "v": v_nick, "rl": res_l, "rv": res_v, 
-        "total": round(res_l+res_v, 1), "wp": wp_l, "diff": diff_final
-    }
+    st.session_state.analisis = {"l": l_nick, "v": v_nick, "rl": res_l, "rv": res_v, "total": round(res_l+res_v, 1), "wp": wp_l, "diff": res_l - res_v}
 
-# --- 7. RESULTADOS Y VALOR ---
+# --- 7. RESULTADOS ---
 if 'analisis' in st.session_state:
     res = st.session_state.analisis
     st.divider()
-    
-    col_res1, col_res2 = st.columns([2, 1])
-    with col_res1:
+    col_out1, col_out2 = st.columns([2, 1])
+    with col_out1:
         st.header(f"📊 {res['l']} {res['rl']} - {res['rv']} {res['v']}")
-        st.subheader("Probabilidad de Victoria")
-        st.progress(res['wp'], text=f"{res['l']}: {round(res['wp']*100, 1)}% vs {res['v']}: {round((1-res['wp'])*100, 1)}%")
+        st.progress(res['wp'], text=f"Fuerza {res['l']}: {round(res['wp']*100, 1)}%")
         
-    with col_res2:
-        st.metric("Total IA", res['total'])
-        # 💰 Cálculo de Edge (Valor)
-        edge_ou = round(res['total'] - linea_ou, 1)
-        st.metric("Edge Over/Under", edge_ou, delta=f"{edge_ou} pts vs Casino")
-        
-        edge_spread = round((-res['diff']) - linea_spread, 1)
-        st.metric("Edge Spread (Hándicap)", edge_spread)
+    with col_out2:
+        st.metric("Total IA", res['total'], delta=f"{round(res['total'] - linea_ou, 1)} vs Casino")
+        st.metric("Hándicap", round(-res['diff'], 1), delta=f"{round((-res['diff']) - linea_spread, 1)} vs Casino")
 
-    # Tabla de Cuartos
+    # Tabla de Cuartos con PROMEDIO
     dist = [0.26, 0.26, 0.24, 0.24]
     st.table(pd.DataFrame({
         "Periodo": ["Q1", "Q2", "Q3", "Q4", "PROM/Q"],
-        res['l']: [round(res['rl']*d,1) for d in dist] + [round(res['rl']/4,1)],
-        res['v']: [round(res['rv']*d,1) for d in dist] + [round(res['rv']/4,1)]
+        res['l']: [round(res['rl']*d, 1) for d in dist] + [round(res['rl']/4, 1)],
+        res['v']: [round(res['rv']*d, 1) for d in dist] + [round(res['rv']/4, 1)]
     }))
-
-    # 📉 FEEDBACK DE RESULTADO REAL
-    st.write("---")
-    st.subheader("🎯 REFINAMIENTO DE ACIERTO (Post-Partido)")
-    rx1, rx2 = st.columns(2)
-    real_l = rx1.number_input("Puntos Finales Local", value=0)
-    real_v = rx2.number_input("Puntos Finales Visita", value=0)
-    if real_l > 0:
-        error = abs((real_l + real_v) - res['total'])
-        st.info(f"Margen de Error del Modelo: {round(error, 1)} puntos. ¡Buen análisis!")
-
-    # MONITOR LIVE
-    st.subheader("⏱️ MONITOR LIVE")
-    lx1, lx2, lx3 = st.columns(3)
-    live_l = lx1.number_input(f"Live {res['l']}", value=0, key="ll")
-    live_v = lx2.number_input(f"Live {res['v']}", value=0, key="lv")
-    tiempo = lx3.selectbox("Tiempo", ["Q1", "MT (Q2)", "Q3"])
-    if live_l > 0:
-        f_m = {"Q1": 4, "MT (Q2)": 2, "Q3": 1.33}
-        t_act = (live_l + live_v) * f_m[tiempo]
-        st.write(f"Tendencia: {round(t_act, 1)} | Desv vs IA: {round(t_act - res['total'], 1)}")
