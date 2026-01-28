@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-# Intentar importar librería de Standings
+# Intentar importar librería de Standings para L10 Automático
 try:
     from nba_api.stats.endpoints import leaguestandings
     NBA_API_AVAILABLE = True
@@ -13,9 +13,9 @@ except:
     NBA_API_AVAILABLE = False
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI PRO V8.8", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI PRO V8.9", layout="wide", page_icon="🏀")
 
-# --- 2. BASE DE DATOS (STATS + NUEVO: ADN DE CUARTOS) ---
+# --- 2. BASE DE DATOS DE ESTADÍSTICAS ---
 ADVANCED_STATS = {
     "Celtics": [123.5, 110.5, 1.12, 4.8, 0.99], "Thunder": [119.5, 110.0, 1.09, 3.8, 1.02],
     "Nuggets": [118.0, 112.0, 1.18, 5.8, 0.97], "76ers": [116.5, 113.5, 1.02, 3.5, 0.98],
@@ -34,16 +34,24 @@ ADVANCED_STATS = {
     "Wizards": [111.8, 122.5, 0.91, 3.0, 1.04], "Trail Blazers": [110.0, 117.5, 0.93, 3.8, 0.98]
 }
 
-# ADN de Distribución por Cuartos [Q1, Q2, Q3, Q4]
+# --- NUEVO: ADN COMPLETO DE LOS 30 EQUIPOS (Distribución Q1, Q2, Q3, Q4) ---
+# Suma aprox 1.0. Esto evita que los cuartos se vean iguales.
 TEAM_QUARTER_DNA = {
-    "Warriors": [0.24, 0.24, 0.30, 0.22], # 3er cuarto fuerte
-    "Celtics": [0.28, 0.26, 0.23, 0.23],  # Inicio fuerte
-    "Nuggets": [0.27, 0.26, 0.24, 0.23],
-    "Bucks": [0.24, 0.24, 0.24, 0.28],    # Cierres fuertes
-    "Heat": [0.23, 0.24, 0.25, 0.28],     # Clutch team
-    "Pacers": [0.26, 0.26, 0.26, 0.22],   # Ritmo alto inicio
-    "Suns": [0.25, 0.25, 0.25, 0.25],     # Equilibrado
-    # ... Default para el resto se maneja en código
+    "Celtics": [0.27, 0.26, 0.24, 0.23], "Thunder": [0.26, 0.26, 0.25, 0.23],
+    "Nuggets": [0.25, 0.25, 0.26, 0.24], "76ers": [0.26, 0.25, 0.24, 0.25],
+    "Cavaliers": [0.26, 0.26, 0.24, 0.24], "Lakers": [0.24, 0.25, 0.24, 0.27],
+    "Warriors": [0.23, 0.24, 0.30, 0.23], "Knicks": [0.25, 0.25, 0.26, 0.24],
+    "Mavericks": [0.24, 0.24, 0.25, 0.27], "Bucks": [0.24, 0.25, 0.23, 0.28],
+    "Timberwolves": [0.25, 0.26, 0.24, 0.25], "Suns": [0.25, 0.25, 0.25, 0.25],
+    "Pacers": [0.28, 0.27, 0.24, 0.21], "Kings": [0.27, 0.26, 0.24, 0.23],
+    "Heat": [0.23, 0.24, 0.25, 0.28], "Magic": [0.24, 0.25, 0.26, 0.25],
+    "Clippers": [0.25, 0.25, 0.25, 0.25], "Rockets": [0.24, 0.24, 0.26, 0.26],
+    "Pelicans": [0.25, 0.26, 0.24, 0.25], "Hawks": [0.27, 0.26, 0.24, 0.23],
+    "Grizzlies": [0.24, 0.24, 0.25, 0.27], "Bulls": [0.25, 0.24, 0.24, 0.27],
+    "Nets": [0.24, 0.24, 0.24, 0.28], "Raptors": [0.25, 0.25, 0.25, 0.25],
+    "Jazz": [0.23, 0.24, 0.26, 0.27], "Spurs": [0.24, 0.24, 0.25, 0.27],
+    "Hornets": [0.26, 0.24, 0.24, 0.26], "Pistons": [0.24, 0.24, 0.24, 0.28],
+    "Wizards": [0.26, 0.25, 0.23, 0.26], "Trail Blazers": [0.24, 0.24, 0.25, 0.27]
 }
 
 STARS_DB = {
@@ -57,6 +65,7 @@ STARS_DB = {
 # --- 3. FUNCIONES DE DATOS ---
 @st.cache_data(ttl=3600)
 def get_l10_stats():
+    """Obtiene el récord L10 de la API oficial"""
     try:
         standings = leaguestandings.LeagueStandings(season='2024-25').get_dict()
         data = standings['resultSets'][0]['rowSet']
@@ -115,7 +124,7 @@ inj_db = get_espn_injuries()
 l10_data = get_l10_stats()
 
 with st.sidebar:
-    st.header("⚙️ SISTEMA V8.8 PRO")
+    st.header("⚙️ SISTEMA V8.9 PRO")
     if st.button("🔄 ACTUALIZAR TODO"):
         st.cache_data.clear(); st.rerun()
     
@@ -139,7 +148,7 @@ with st.sidebar:
                 for p in bajas_sidebar: st.write(f"• {p}")
 
 # --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V8.8: DNA & BLOWOUT ENGINE")
+st.title("🏀 NBA AI PRO V8.9: FULL QUARTER DNA")
 
 with st.expander("🔍 VER REPORTE DE LESIONADOS EN TIEMPO REAL (ESPN)"):
     cols = st.columns(3)
@@ -153,7 +162,7 @@ with c1:
     l_nick = st.selectbox("LOCAL", sorted(ADVANCED_STATS.keys()), index=5)
     rec_l = l10_data.get(l_nick, l10_data.get(l_nick.split()[-1], None))
     bonus_l10_l, status_l = calculate_inertia(rec_l)
-    st.markdown(f"### {l_nick} | {status_l}")
+    st.markdown(f"### {l_nick} | {status_l} ({rec_l if rec_l else 'N/A'})")
     
     penal_auto_l, estrellas_l = perform_auto_detection(l_nick, inj_db)
     if estrellas_l: st.error(f"⚠️ BAJAS CLAVE: {', '.join(estrellas_l)}")
@@ -164,14 +173,14 @@ with c2:
     v_nick = st.selectbox("VISITANTE", sorted(ADVANCED_STATS.keys()), index=23)
     rec_v = l10_data.get(v_nick, l10_data.get(v_nick.split()[-1], None))
     bonus_l10_v, status_v = calculate_inertia(rec_v)
-    st.markdown(f"### {v_nick} | {status_v}")
+    st.markdown(f"### {v_nick} | {status_v} ({rec_v if rec_v else 'N/A'})")
 
     penal_auto_v, estrellas_v = perform_auto_detection(v_nick, inj_db)
     if estrellas_v: st.error(f"⚠️ BAJAS CLAVE: {', '.join(estrellas_v)}")
     else: st.success("✅ Plantilla OK")
     venganza_v = st.checkbox("🔥 Venganza", key="vv")
 
-# --- 6. MOTOR DE CÁLCULO V8.8 ---
+# --- 6. MOTOR DE CÁLCULO ---
 if st.button("🚀 CALCULAR PICK (ADN + PALIZA)"):
     s_l, s_v = ADVANCED_STATS[l_nick], ADVANCED_STATS[v_nick]
     alt_bonus = 1.02 if l_nick in ["Nuggets", "Jazz"] else 1.0
@@ -180,9 +189,7 @@ if st.button("🚀 CALCULAR PICK (ADN + PALIZA)"):
     penal_b2b_l = 0.035 if b2b_l else 0
     penal_b2b_v = 0.042 if b2b_v else 0 
     
-    # Ajuste Arbitral
     ref_factor = 1.03 if "Over" in ref_trend else (0.97 if "Under" in ref_trend else 1.0)
-
     ritmo_p = ((s_l[4] + s_v[4])/2) * (0.97 if (b2b_l or b2b_v) else 1.0) * ref_factor
     
     pot_l = (((s_l[0] * (1 - penal_auto_l - penal_b2b_l + bonus_l10_l + (0.03 if venganza_l else 0))) * 0.7) + (s_v[1] * 0.3)) * ritmo_p * alt_bonus
@@ -190,11 +197,11 @@ if st.button("🚀 CALCULAR PICK (ADN + PALIZA)"):
     
     res_l, res_v = round(pot_l + s_l[3], 1), round(pot_v, 1)
     
-    # --- DISTRIBUCIÓN POR ADN Y FACTOR BLOWOUT ---
+    # --- DISTRIBUCIÓN POR ADN REAL ---
+    # Ahora usamos el diccionario completo, por lo que nunca usará el fallback de 0.25
     dna_l = TEAM_QUARTER_DNA.get(l_nick, [0.25, 0.25, 0.25, 0.25])
     dna_v = TEAM_QUARTER_DNA.get(v_nick, [0.25, 0.25, 0.25, 0.25])
     
-    # Calcular hasta Q3
     q1_l, q2_l, q3_l = [res_l * p for p in dna_l[:3]]
     q1_v, q2_v, q3_v = [res_v * p for p in dna_v[:3]]
     
@@ -202,21 +209,20 @@ if st.button("🚀 CALCULAR PICK (ADN + PALIZA)"):
     cum_v_q3 = q1_v + q2_v + q3_v
     diff_q3 = cum_l_q3 - cum_v_q3
     
-    # Aplicar Factor Paliza en Q4 si es necesario
+    # Factor Paliza (Blowout)
     q4_l = res_l * dna_l[3]
     q4_v = res_v * dna_v[3]
     
     blowout_msg = ""
     if abs(diff_q3) > 15:
-        blowout_msg = "🚨 DETECCIÓN DE PALIZA (GARBAGE TIME): Reducción de puntos en Q4"
-        if diff_q3 > 0: # Local gana por paliza
-            q4_l *= 0.85 # Local saca titulares
-            q4_v *= 0.95 # Visita anota un poco menos
-        else: # Visita gana por paliza
+        blowout_msg = "🚨 DETECCIÓN DE PALIZA (GARBAGE TIME): Puntos reducidos en Q4"
+        if diff_q3 > 0: # Local gana
+            q4_l *= 0.85
+            q4_v *= 0.95
+        else: # Visita gana
             q4_v *= 0.85
             q4_l *= 0.95
             
-    # Resultados Finales Ajustados
     final_l = q1_l + q2_l + q3_l + q4_l
     final_v = q1_v + q2_v + q3_v + q4_v
     total_ia = round(final_l + final_v, 1)
@@ -236,7 +242,6 @@ if st.button("🚀 CALCULAR PICK (ADN + PALIZA)"):
         st.metric("TOTAL IA", total_ia, delta=f"{round(total_ia - linea_ou, 1)} vs Casino")
         st.metric("SPREAD IA", round(-diff_final, 1), delta=f"{round((-diff_final) - linea_spread, 1)} Valor")
 
-    # Tabla con ADN aplicado
     st.table(pd.DataFrame({
         "Periodo": ["Q1", "Q2", "Q3", "Q4", "FINAL"],
         l_nick: [round(x,1) for x in [q1_l, q2_l, q3_l, q4_l, final_l]],
