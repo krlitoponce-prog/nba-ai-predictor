@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-# Importamos el endpoint de la tabla de posiciones
+# Intentar importar librería de Standings
 try:
     from nba_api.stats.endpoints import leaguestandings
     NBA_API_AVAILABLE = True
@@ -13,9 +13,9 @@ except:
     NBA_API_AVAILABLE = False
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI PRO V8.7", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI PRO V8.8", layout="wide", page_icon="🏀")
 
-# --- 2. BASE DE DATOS ADN NBA ---
+# --- 2. BASE DE DATOS (STATS + NUEVO: ADN DE CUARTOS) ---
 ADVANCED_STATS = {
     "Celtics": [123.5, 110.5, 1.12, 4.8, 0.99], "Thunder": [119.5, 110.0, 1.09, 3.8, 1.02],
     "Nuggets": [118.0, 112.0, 1.18, 5.8, 0.97], "76ers": [116.5, 113.5, 1.02, 3.5, 0.98],
@@ -34,6 +34,18 @@ ADVANCED_STATS = {
     "Wizards": [111.8, 122.5, 0.91, 3.0, 1.04], "Trail Blazers": [110.0, 117.5, 0.93, 3.8, 0.98]
 }
 
+# ADN de Distribución por Cuartos [Q1, Q2, Q3, Q4]
+TEAM_QUARTER_DNA = {
+    "Warriors": [0.24, 0.24, 0.30, 0.22], # 3er cuarto fuerte
+    "Celtics": [0.28, 0.26, 0.23, 0.23],  # Inicio fuerte
+    "Nuggets": [0.27, 0.26, 0.24, 0.23],
+    "Bucks": [0.24, 0.24, 0.24, 0.28],    # Cierres fuertes
+    "Heat": [0.23, 0.24, 0.25, 0.28],     # Clutch team
+    "Pacers": [0.26, 0.26, 0.26, 0.22],   # Ritmo alto inicio
+    "Suns": [0.25, 0.25, 0.25, 0.25],     # Equilibrado
+    # ... Default para el resto se maneja en código
+}
+
 STARS_DB = {
     "tatum": [22.5, 18.5, 29.5], "jokic": [31.5, 25.0, 32.1], "doncic": [28.1, 23.5, 35.8], 
     "james": [23.0, 19.0, 28.5], "curry": [24.5, 20.0, 30.2], "embiid": [30.2, 24.5, 34.0], 
@@ -43,29 +55,20 @@ STARS_DB = {
 }
 
 # --- 3. FUNCIONES DE DATOS ---
-@st.cache_data(ttl=3600) # Caché de 1 hora para no saturar
+@st.cache_data(ttl=3600)
 def get_l10_stats():
-    """Obtiene el récord de los últimos 10 partidos para todos los equipos"""
     try:
         standings = leaguestandings.LeagueStandings(season='2024-25').get_dict()
         data = standings['resultSets'][0]['rowSet']
-        # Mapeamos TeamCity o TeamName -> L10
         l10_map = {}
+        headers = standings['resultSets'][0]['headers']
+        idx_name, idx_l10 = headers.index('TeamName'), headers.index('L10')
         for row in data:
-            # row[3] es City, row[4] es Name, row[19] suele ser L10 (depende de la versión API, buscamos por índice seguro o nombre)
-            # Simplificación: Usaremos el nombre del equipo y buscaremos la columna L10
-            headers = standings['resultSets'][0]['headers']
-            idx_name = headers.index('TeamName')
-            idx_l10 = headers.index('L10')
-            team_name = row[idx_name]
-            l10_val = row[idx_l10] # Formato "7-3"
-            l10_map[team_name] = l10_val
+            l10_map[row[idx_name]] = row[idx_l10]
         return l10_map
-    except:
-        return {} # Retorna vacío si falla la API
+    except: return {}
 
 def calculate_inertia(l10_record):
-    """Convierte el récord 8-2 en un factor numérico"""
     if not l10_record: return 0.0, "Neutral"
     try:
         wins = int(l10_record.split('-')[0])
@@ -89,10 +92,10 @@ def get_espn_injuries():
     except: return {}
 
 def perform_auto_detection(team_nick, injuries_db):
-    bajas_equipo = injuries_db.get(team_nick.lower(), [])
+    bajas = injuries_db.get(team_nick.lower(), [])
     penalizacion = 0.0
     detected_stars = []
-    for player in bajas_equipo:
+    for player in bajas:
         for star, stats in STARS_DB.items():
             if star in player.lower():
                 impacto_p = (stats[0]/200) + (stats[1]/200) + (stats[2]/600)
@@ -109,13 +112,17 @@ def get_history():
 
 # --- 4. SIDEBAR ---
 inj_db = get_espn_injuries()
-l10_data = get_l10_stats() # Carga automática de L10
+l10_data = get_l10_stats()
 
 with st.sidebar:
-    st.header("⚙️ SISTEMA V8.7")
+    st.header("⚙️ SISTEMA V8.8 PRO")
     if st.button("🔄 ACTUALIZAR TODO"):
         st.cache_data.clear(); st.rerun()
     
+    st.subheader("🦓 FACTOR ARBITRAL")
+    ref_trend = st.selectbox("Tendencia Jueces", ["Neutral", "Over (Muchas Faltas)", "Under (Dejan Jugar)"])
+    
+    st.divider()
     st.subheader("💰 LÍNEAS CASINO")
     linea_ou = st.number_input("Over/Under", value=220.0, step=0.5)
     linea_spread = st.number_input("Hándicap Local", value=-4.5, step=0.5)
@@ -132,9 +139,8 @@ with st.sidebar:
                 for p in bajas_sidebar: st.write(f"• {p}")
 
 # --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V8.7: AUTO-INERTIA L10")
+st.title("🏀 NBA AI PRO V8.8: DNA & BLOWOUT ENGINE")
 
-# Botón desplegable de lesionados
 with st.expander("🔍 VER REPORTE DE LESIONADOS EN TIEMPO REAL (ESPN)"):
     cols = st.columns(3)
     for i, (team, players) in enumerate(inj_db.items()):
@@ -145,76 +151,94 @@ c1, c2 = st.columns(2)
 
 with c1:
     l_nick = st.selectbox("LOCAL", sorted(ADVANCED_STATS.keys()), index=5)
-    
-    # Lógica Automática L10 Local
-    # Intentamos buscar el récord usando el nickname
-    rec_l = l10_data.get(l_nick, l10_data.get(l_nick.split()[-1], None)) # Intento de match simple
+    rec_l = l10_data.get(l_nick, l10_data.get(l_nick.split()[-1], None))
     bonus_l10_l, status_l = calculate_inertia(rec_l)
-    
-    st.markdown(f"### {l_nick} | {status_l} ({rec_l if rec_l else 'N/A'})")
+    st.markdown(f"### {l_nick} | {status_l}")
     
     penal_auto_l, estrellas_l = perform_auto_detection(l_nick, inj_db)
     if estrellas_l: st.error(f"⚠️ BAJAS CLAVE: {', '.join(estrellas_l)}")
     else: st.success("✅ Plantilla OK")
-    
     venganza_l = st.checkbox("🔥 Venganza", key="vl")
 
 with c2:
     v_nick = st.selectbox("VISITANTE", sorted(ADVANCED_STATS.keys()), index=23)
-    
-    # Lógica Automática L10 Visita
     rec_v = l10_data.get(v_nick, l10_data.get(v_nick.split()[-1], None))
     bonus_l10_v, status_v = calculate_inertia(rec_v)
-    
-    st.markdown(f"### {v_nick} | {status_v} ({rec_v if rec_v else 'N/A'})")
+    st.markdown(f"### {v_nick} | {status_v}")
 
     penal_auto_v, estrellas_v = perform_auto_detection(v_nick, inj_db)
     if estrellas_v: st.error(f"⚠️ BAJAS CLAVE: {', '.join(estrellas_v)}")
     else: st.success("✅ Plantilla OK")
-    
     venganza_v = st.checkbox("🔥 Venganza", key="vv")
 
-# --- 6. MOTOR DE CÁLCULO ---
-if st.button("🚀 CALCULAR PICK"):
+# --- 6. MOTOR DE CÁLCULO V8.8 ---
+if st.button("🚀 CALCULAR PICK (ADN + PALIZA)"):
     s_l, s_v = ADVANCED_STATS[l_nick], ADVANCED_STATS[v_nick]
-    
-    # Altitud Automática
     alt_bonus = 1.02 if l_nick in ["Nuggets", "Jazz"] else 1.0
-    
-    # Alerta Duelo de Estilos
-    if abs(s_l[4] - s_v[4]) > 0.07: st.warning("⚠️ ALERTA: Choque de Ritmos (Over/Under Volátil)")
+    if abs(s_l[4] - s_v[4]) > 0.07: st.warning("⚠️ ALERTA: Choque de Ritmos")
 
-    # Fatiga Dinámica (+15% castigo a visita en B2B)
     penal_b2b_l = 0.035 if b2b_l else 0
     penal_b2b_v = 0.042 if b2b_v else 0 
     
-    ritmo_p = ((s_l[4] + s_v[4])/2) * (0.97 if (b2b_l or b2b_v) else 1.0)
+    # Ajuste Arbitral
+    ref_factor = 1.03 if "Over" in ref_trend else (0.97 if "Under" in ref_trend else 1.0)
+
+    ritmo_p = ((s_l[4] + s_v[4])/2) * (0.97 if (b2b_l or b2b_v) else 1.0) * ref_factor
     
-    # Potencial con Inercia Automática (bonus_l10_l/v ya calculados arriba)
     pot_l = (((s_l[0] * (1 - penal_auto_l - penal_b2b_l + bonus_l10_l + (0.03 if venganza_l else 0))) * 0.7) + (s_v[1] * 0.3)) * ritmo_p * alt_bonus
     pot_v = (((s_v[0] * (1 - penal_auto_v - penal_b2b_v + bonus_l10_v + (0.03 if venganza_v else 0))) * 0.7) + (s_l[1] * 0.3)) * ritmo_p
     
     res_l, res_v = round(pot_l + s_l[3], 1), round(pot_v, 1)
-    total_ia = round(res_l + res_v, 1)
-    diff_ia = res_l - res_v
     
-    wp_l = 1 / (1 + (10 ** (-diff_ia / 15)))
+    # --- DISTRIBUCIÓN POR ADN Y FACTOR BLOWOUT ---
+    dna_l = TEAM_QUARTER_DNA.get(l_nick, [0.25, 0.25, 0.25, 0.25])
+    dna_v = TEAM_QUARTER_DNA.get(v_nick, [0.25, 0.25, 0.25, 0.25])
+    
+    # Calcular hasta Q3
+    q1_l, q2_l, q3_l = [res_l * p for p in dna_l[:3]]
+    q1_v, q2_v, q3_v = [res_v * p for p in dna_v[:3]]
+    
+    cum_l_q3 = q1_l + q2_l + q3_l
+    cum_v_q3 = q1_v + q2_v + q3_v
+    diff_q3 = cum_l_q3 - cum_v_q3
+    
+    # Aplicar Factor Paliza en Q4 si es necesario
+    q4_l = res_l * dna_l[3]
+    q4_v = res_v * dna_v[3]
+    
+    blowout_msg = ""
+    if abs(diff_q3) > 15:
+        blowout_msg = "🚨 DETECCIÓN DE PALIZA (GARBAGE TIME): Reducción de puntos en Q4"
+        if diff_q3 > 0: # Local gana por paliza
+            q4_l *= 0.85 # Local saca titulares
+            q4_v *= 0.95 # Visita anota un poco menos
+        else: # Visita gana por paliza
+            q4_v *= 0.85
+            q4_l *= 0.95
+            
+    # Resultados Finales Ajustados
+    final_l = q1_l + q2_l + q3_l + q4_l
+    final_v = q1_v + q2_v + q3_v + q4_v
+    total_ia = round(final_l + final_v, 1)
+    diff_final = final_l - final_v
+    wp_l = 1 / (1 + (10 ** (-diff_final / 15)))
 
-    # --- 7. RESULTADOS ---
+    # --- RESULTADOS ---
     st.divider()
-    rc1, rc2 = st.columns([2, 1])
+    if blowout_msg: st.info(blowout_msg)
     
+    rc1, rc2 = st.columns([2, 1])
     with rc1:
-        st.header(f"📊 {l_nick} {res_l} - {res_v} {v_nick}")
+        st.header(f"📊 {l_nick} {round(final_l,1)} - {round(final_v,1)} {v_nick}")
         st.progress(wp_l, text=f"Probabilidad {l_nick}: {round(wp_l*100, 1)}%")
         
     with rc2:
         st.metric("TOTAL IA", total_ia, delta=f"{round(total_ia - linea_ou, 1)} vs Casino")
-        st.metric("SPREAD IA", round(-diff_ia, 1), delta=f"{round((-diff_ia) - linea_spread, 1)} de Valor")
+        st.metric("SPREAD IA", round(-diff_final, 1), delta=f"{round((-diff_final) - linea_spread, 1)} Valor")
 
-    # Tabla de Cuartos
+    # Tabla con ADN aplicado
     st.table(pd.DataFrame({
-        "Periodo": ["Q1", "Q2", "Q3", "Q4", "PROM/Q"],
-        l_nick: [round(res_l*0.26,1), round(res_l*0.26,1), round(res_l*0.24,1), round(res_l*0.24,1), round(res_l/4,1)],
-        v_nick: [round(res_v*0.26,1), round(res_v*0.26,1), round(res_v*0.24,1), round(res_v*0.24,1), round(res_v/4,1)]
+        "Periodo": ["Q1", "Q2", "Q3", "Q4", "FINAL"],
+        l_nick: [round(x,1) for x in [q1_l, q2_l, q3_l, q4_l, final_l]],
+        v_nick: [round(x,1) for x in [q1_v, q2_v, q3_v, q4_v, final_v]]
     }))
