@@ -5,10 +5,17 @@ import sqlite3
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-# --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="NBA AI PRO V8.6", layout="wide", page_icon="🚀")
+# Importamos el endpoint de la tabla de posiciones
+try:
+    from nba_api.stats.endpoints import leaguestandings
+    NBA_API_AVAILABLE = True
+except:
+    NBA_API_AVAILABLE = False
 
-# --- 2. BASE DE DATOS ADN NBA (Actualizada) ---
+# --- 1. CONFIGURACIÓN ---
+st.set_page_config(page_title="NBA AI PRO V8.7", layout="wide", page_icon="🏀")
+
+# --- 2. BASE DE DATOS ADN NBA ---
 ADVANCED_STATS = {
     "Celtics": [123.5, 110.5, 1.12, 4.8, 0.99], "Thunder": [119.5, 110.0, 1.09, 3.8, 1.02],
     "Nuggets": [118.0, 112.0, 1.18, 5.8, 0.97], "76ers": [116.5, 113.5, 1.02, 3.5, 0.98],
@@ -31,10 +38,42 @@ STARS_DB = {
     "tatum": [22.5, 18.5, 29.5], "jokic": [31.5, 25.0, 32.1], "doncic": [28.1, 23.5, 35.8], 
     "james": [23.0, 19.0, 28.5], "curry": [24.5, 20.0, 30.2], "embiid": [30.2, 24.5, 34.0], 
     "antetokounmpo": [29.8, 24.0, 32.5], "davis": [25.0, 20.5, 26.8], "durant": [24.0, 21.0, 29.0],
-    "booker": [21.5, 18.5, 28.0], "gilgeous": [27.5, 22.0, 31.5], "brunson": [21.5, 17.5, 30.5]
+    "booker": [21.5, 18.5, 28.0], "gilgeous": [27.5, 22.0, 31.5], "brunson": [21.5, 17.5, 30.5],
+    "wembanayama": [22.0, 18.0, 28.5], "maxey": [21.0, 17.0, 26.5], "fox": [22.0, 18.0, 29.0]
 }
 
 # --- 3. FUNCIONES DE DATOS ---
+@st.cache_data(ttl=3600) # Caché de 1 hora para no saturar
+def get_l10_stats():
+    """Obtiene el récord de los últimos 10 partidos para todos los equipos"""
+    try:
+        standings = leaguestandings.LeagueStandings(season='2024-25').get_dict()
+        data = standings['resultSets'][0]['rowSet']
+        # Mapeamos TeamCity o TeamName -> L10
+        l10_map = {}
+        for row in data:
+            # row[3] es City, row[4] es Name, row[19] suele ser L10 (depende de la versión API, buscamos por índice seguro o nombre)
+            # Simplificación: Usaremos el nombre del equipo y buscaremos la columna L10
+            headers = standings['resultSets'][0]['headers']
+            idx_name = headers.index('TeamName')
+            idx_l10 = headers.index('L10')
+            team_name = row[idx_name]
+            l10_val = row[idx_l10] # Formato "7-3"
+            l10_map[team_name] = l10_val
+        return l10_map
+    except:
+        return {} # Retorna vacío si falla la API
+
+def calculate_inertia(l10_record):
+    """Convierte el récord 8-2 en un factor numérico"""
+    if not l10_record: return 0.0, "Neutral"
+    try:
+        wins = int(l10_record.split('-')[0])
+        if wins >= 7: return 0.025, "🔥 Caliente"
+        elif wins <= 3: return -0.025, "❄️ Frío"
+        else: return 0.0, "Neutral"
+    except: return 0.0, "Neutral"
+
 @st.cache_data(ttl=600)
 def get_espn_injuries():
     try:
@@ -49,109 +88,129 @@ def get_espn_injuries():
         return injuries
     except: return {}
 
-def get_total_lineup_impact(team_nick, injuries_db):
-    bajas = injuries_db.get(team_nick.lower(), [])
+def perform_auto_detection(team_nick, injuries_db):
+    bajas_equipo = injuries_db.get(team_nick.lower(), [])
     penalizacion = 0.0
-    detected_players = []
-    for player in bajas:
-        is_star = False
-        detected_players.append(player)
+    detected_stars = []
+    for player in bajas_equipo:
         for star, stats in STARS_DB.items():
             if star in player.lower():
                 impacto_p = (stats[0]/200) + (stats[1]/200) + (stats[2]/600)
                 penalizacion += impacto_p
-                is_star = True
-        if not is_star:
-            penalizacion += 0.015 # Penalización base por jugador de rotación (Sensibilidad Total)
-    return min(0.30, penalizacion), detected_players
+                detected_stars.append(f"{player} (USG%: {stats[2]})")
+    return min(0.26, penalizacion), detected_stars
+
+def get_history():
+    try:
+        conn = sqlite3.connect('nba_data.db')
+        df = pd.read_sql_query("SELECT fecha, partido, pred_total FROM historial ORDER BY id DESC LIMIT 5", conn)
+        conn.close(); return df
+    except: return pd.DataFrame(columns=["Fecha", "Partido", "Pred"])
 
 # --- 4. SIDEBAR ---
 inj_db = get_espn_injuries()
+l10_data = get_l10_stats() # Carga automática de L10
+
 with st.sidebar:
-    st.header("⚙️ SISTEMA V8.6")
-    if st.button("🔄 ACTUALIZAR DATOS FRESCOS"):
+    st.header("⚙️ SISTEMA V8.7")
+    if st.button("🔄 ACTUALIZAR TODO"):
         st.cache_data.clear(); st.rerun()
     
-    st.write("---")
-    st.subheader("💰 CALCULADORA DE VALOR (EDGE)")
-    casino_ou = st.number_input("Línea O/U Casino", value=225.0, step=0.5)
-    casino_spread = st.number_input("Línea Hándicap Local", value=-3.5, step=0.5)
-
-    st.write("---")
-    st.subheader("🔋 FACTOR B2B DINÁMICO")
-    b2b_l = st.toggle("Local en B2B", key="b2bl")
-    b2b_v = st.toggle("Visita en B2B (Castigo +15%)", key="b2bv")
+    st.subheader("💰 LÍNEAS CASINO")
+    linea_ou = st.number_input("Over/Under", value=220.0, step=0.5)
+    linea_spread = st.number_input("Hándicap Local", value=-4.5, step=0.5)
     
-    st.subheader("📈 INERCIA RECIENTE (L10)")
-    l10_l = st.select_slider("Inercia Local", ["Frío", "Neutral", "Caliente"], "Neutral", key="l10l")
-    l10_v = st.select_slider("Inercia Visita", ["Frío", "Neutral", "Caliente"], "Neutral", key="l10v")
+    st.subheader("🔋 FACTOR B2B")
+    b2b_l = st.toggle("Local en B2B", key="b2bl")
+    b2b_v = st.toggle("Visita en B2B (+Castigo)", key="b2bv")
+    
+    st.subheader("📍 LISTA LESIONADOS")
+    for t_nick_disp in sorted(ADVANCED_STATS.keys()):
+        bajas_sidebar = inj_db.get(t_nick_disp.lower(), [])
+        if bajas_sidebar:
+            with st.expander(f"📍 {t_nick_disp.upper()}"):
+                for p in bajas_sidebar: st.write(f"• {p}")
 
 # --- 5. INTERFAZ PRINCIPAL ---
-st.title("🏀 NBA AI PRO V8.6: PROFESIONAL ENGINE")
+st.title("🏀 NBA AI PRO V8.7: AUTO-INERTIA L10")
+
+# Botón desplegable de lesionados
+with st.expander("🔍 VER REPORTE DE LESIONADOS EN TIEMPO REAL (ESPN)"):
+    cols = st.columns(3)
+    for i, (team, players) in enumerate(inj_db.items()):
+        cols[i % 3].markdown(f"**{team.upper()}**")
+        for p in players: cols[i % 3].caption(f"❌ {p}")
+
 c1, c2 = st.columns(2)
 
 with c1:
     l_nick = st.selectbox("LOCAL", sorted(ADVANCED_STATS.keys()), index=5)
-    st.markdown(f"### Ajustes {l_nick}")
-    impact_l, list_l = get_total_lineup_impact(l_nick, inj_db)
-    if list_l: st.warning(f"🚑 Bajas Detectadas ({len(list_l)}): {', '.join(list_l[:4])}...")
-    else: st.success("✅ Rotación Completa")
-    venganza_l = st.checkbox("🔥 Factor Venganza", key="vl")
+    
+    # Lógica Automática L10 Local
+    # Intentamos buscar el récord usando el nickname
+    rec_l = l10_data.get(l_nick, l10_data.get(l_nick.split()[-1], None)) # Intento de match simple
+    bonus_l10_l, status_l = calculate_inertia(rec_l)
+    
+    st.markdown(f"### {l_nick} | {status_l} ({rec_l if rec_l else 'N/A'})")
+    
+    penal_auto_l, estrellas_l = perform_auto_detection(l_nick, inj_db)
+    if estrellas_l: st.error(f"⚠️ BAJAS CLAVE: {', '.join(estrellas_l)}")
+    else: st.success("✅ Plantilla OK")
+    
+    venganza_l = st.checkbox("🔥 Venganza", key="vl")
 
 with c2:
     v_nick = st.selectbox("VISITANTE", sorted(ADVANCED_STATS.keys()), index=23)
-    st.markdown(f"### Ajustes {v_nick}")
-    impact_v, list_v = get_total_lineup_impact(v_nick, inj_db)
-    if list_v: st.warning(f"🚑 Bajas Detectadas ({len(list_v)}): {', '.join(list_v[:4])}...")
-    else: st.success("✅ Rotación Completa")
-    venganza_v = st.checkbox("🔥 Factor Venganza", key="vv")
+    
+    # Lógica Automática L10 Visita
+    rec_v = l10_data.get(v_nick, l10_data.get(v_nick.split()[-1], None))
+    bonus_l10_v, status_v = calculate_inertia(rec_v)
+    
+    st.markdown(f"### {v_nick} | {status_v} ({rec_v if rec_v else 'N/A'})")
 
-# --- 6. PROCESAMIENTO ---
-if st.button("🚀 CALCULAR PREDICCIÓN ELITE"):
+    penal_auto_v, estrellas_v = perform_auto_detection(v_nick, inj_db)
+    if estrellas_v: st.error(f"⚠️ BAJAS CLAVE: {', '.join(estrellas_v)}")
+    else: st.success("✅ Plantilla OK")
+    
+    venganza_v = st.checkbox("🔥 Venganza", key="vv")
+
+# --- 6. MOTOR DE CÁLCULO ---
+if st.button("🚀 CALCULAR PICK"):
     s_l, s_v = ADVANCED_STATS[l_nick], ADVANCED_STATS[v_nick]
     
-    # Altitud Automática (Denver/Utah)
+    # Altitud Automática
     alt_bonus = 1.02 if l_nick in ["Nuggets", "Jazz"] else 1.0
     
     # Alerta Duelo de Estilos
-    if abs(s_l[4] - s_v[4]) > 0.07: st.error("⚔️ DUELO DE ESTILOS: Ritmos opuestos detectados. Juego impredecible.")
+    if abs(s_l[4] - s_v[4]) > 0.07: st.warning("⚠️ ALERTA: Choque de Ritmos (Over/Under Volátil)")
 
-    # Fatiga Dinámica
+    # Fatiga Dinámica (+15% castigo a visita en B2B)
     penal_b2b_l = 0.035 if b2b_l else 0
-    penal_b2b_v = 0.042 if b2b_v else 0 # +15% de peso al visitante
+    penal_b2b_v = 0.042 if b2b_v else 0 
     
-    # Inercia L10
-    bonus_l = 0.02 if l10_l == "Caliente" else (-0.02 if l10_l == "Frío" else 0)
-    bonus_v = 0.02 if l10_v == "Caliente" else (-0.02 if l10_v == "Frío" else 0)
-
     ritmo_p = ((s_l[4] + s_v[4])/2) * (0.97 if (b2b_l or b2b_v) else 1.0)
     
-    pot_l = (((s_l[0] * (1 - impact_l - penal_b2b_l + bonus_l + (0.03 if venganza_l else 0))) * 0.7) + (s_v[1] * 0.3)) * ritmo_p * alt_bonus
-    pot_v = (((s_v[0] * (1 - impact_v - penal_b2b_v + bonus_v + (0.03 if venganza_v else 0))) * 0.7) + (s_l[1] * 0.3)) * ritmo_p
+    # Potencial con Inercia Automática (bonus_l10_l/v ya calculados arriba)
+    pot_l = (((s_l[0] * (1 - penal_auto_l - penal_b2b_l + bonus_l10_l + (0.03 if venganza_l else 0))) * 0.7) + (s_v[1] * 0.3)) * ritmo_p * alt_bonus
+    pot_v = (((s_v[0] * (1 - penal_auto_v - penal_b2b_v + bonus_l10_v + (0.03 if venganza_v else 0))) * 0.7) + (s_l[1] * 0.3)) * ritmo_p
     
     res_l, res_v = round(pot_l + s_l[3], 1), round(pot_v, 1)
     total_ia = round(res_l + res_v, 1)
     diff_ia = res_l - res_v
-
-    # --- 7. DASHBOARD DE RESULTADOS ---
-    st.divider()
-    res_c1, res_c2 = st.columns([2, 1])
     
-    with res_c1:
-        st.header(f"📊 PROYECCIÓN: {l_nick} {res_l} - {res_v} {v_nick}")
-        # Barra de Fuerza (Probabilidad)
-        wp_l = 1 / (1 + (10 ** (-diff_ia / 15)))
-        st.write(f"**Probabilidad de Victoria {l_nick}:**")
-        st.progress(wp_l, text=f"{round(wp_l*100,1)}%")
+    wp_l = 1 / (1 + (10 ** (-diff_ia / 15)))
 
-    with res_c2:
-        st.metric("TOTAL PROYECTADO", total_ia)
-        # Lógica de EDGE
-        edge_ou = round(total_ia - casino_ou, 1)
-        st.metric("EDGE O/U", edge_ou, delta=f"{edge_ou} pts vs Casino", delta_color="normal")
+    # --- 7. RESULTADOS ---
+    st.divider()
+    rc1, rc2 = st.columns([2, 1])
+    
+    with rc1:
+        st.header(f"📊 {l_nick} {res_l} - {res_v} {v_nick}")
+        st.progress(wp_l, text=f"Probabilidad {l_nick}: {round(wp_l*100, 1)}%")
         
-        edge_sp = round((-diff_ia) - casino_spread, 1)
-        st.metric("EDGE SPREAD", edge_sp, delta="Valor en Hándicap")
+    with rc2:
+        st.metric("TOTAL IA", total_ia, delta=f"{round(total_ia - linea_ou, 1)} vs Casino")
+        st.metric("SPREAD IA", round(-diff_ia, 1), delta=f"{round((-diff_ia) - linea_spread, 1)} de Valor")
 
     # Tabla de Cuartos
     st.table(pd.DataFrame({
